@@ -5,7 +5,12 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -33,10 +38,11 @@ MAX_MESSAGE_LENGTH = 4000
 
 
 # ============================================================
-# EXACT THESPORTSDB LEAGUE IDS
+# LEAGUE IDS
 # ============================================================
 
 LEAGUES = {
+
     "premier": "4328",
     "championship": "4329",
 
@@ -79,19 +85,18 @@ if not SPORTSDB_API_KEY:
 
 
 # ============================================================
-# HOME TEXT
+# HOME
 # ============================================================
 
 HOME_TEXT = (
     "🔥 **SPORT PULSE ALERTS**\n\n"
-    "Your sports hub for fixtures, upcoming events "
-    "and worldwide TV channels.\n\n"
-    "👇 **Select a sport to get started**"
+    "Fixtures, upcoming events and TV coverage.\n\n"
+    "👇 **Select a sport**"
 )
 
 
 # ============================================================
-# MENU HELPERS
+# NAVIGATION
 # ============================================================
 
 def navigation_row(back_callback="home"):
@@ -327,14 +332,14 @@ def sport_menu(prefix, back_callback="home"):
         [
             InlineKeyboardButton(
                 "📅 Today",
-                callback_data=f"today_{prefix}",
+                callback_data=f"{prefix}_today",
             )
         ],
 
         [
             InlineKeyboardButton(
                 "➡️ Next 7 Days",
-                callback_data=f"next7_{prefix}",
+                callback_data=f"{prefix}_next7",
             )
         ],
 
@@ -353,8 +358,15 @@ def upcoming_menu(prefix, back_callback):
 
         [
             InlineKeyboardButton(
-                "📅 Upcoming Events",
-                callback_data=f"{prefix}_upcoming",
+                "📅 Today",
+                callback_data=f"{prefix}_today",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "➡️ Next 7 Days",
+                callback_data=f"{prefix}_next7",
             )
         ],
 
@@ -384,7 +396,7 @@ def results_menu(back_callback, worldwide_callback):
 
 
 # ============================================================
-# UK DATE
+# DATE
 # ============================================================
 
 def get_uk_date():
@@ -395,10 +407,6 @@ def get_uk_date():
         "%Y-%m-%d"
     )
 
-
-# ============================================================
-# DISPLAY DATE
-# ============================================================
 
 def format_display_date(date_string):
 
@@ -417,14 +425,12 @@ def format_display_date(date_string):
 
 
 # ============================================================
-# UK EVENT TIME
+# EVENT TIME
 # ============================================================
 
 def format_event_time(event):
 
-    timestamp = event.get(
-        "strTimestamp"
-    )
+    timestamp = event.get("strTimestamp")
 
     if timestamp:
 
@@ -447,34 +453,22 @@ def format_event_time(event):
 
             return event_datetime.astimezone(
                 UK_TIMEZONE
-            ).strftime(
-                "%H:%M"
-            )
+            ).strftime("%H:%M")
 
         except Exception:
 
             pass
 
 
-    event_date = event.get(
-        "dateEvent"
-    )
+    event_date = event.get("dateEvent")
+    event_time = event.get("strTime")
 
-    event_time = event.get(
-        "strTime"
-    )
 
     if event_date and event_time:
 
         try:
 
-            clean_time = (
-                event_time
-                .split("+")[0]
-                .split("Z")[0]
-            )
-
-            clean_time = clean_time[:8]
+            clean_time = event_time[:8]
 
             event_datetime = datetime.strptime(
                 f"{event_date} {clean_time}",
@@ -487,9 +481,7 @@ def format_event_time(event):
 
             return event_datetime.astimezone(
                 UK_TIMEZONE
-            ).strftime(
-                "%H:%M"
-            )
+            ).strftime("%H:%M")
 
         except Exception:
 
@@ -505,7 +497,7 @@ def format_event_time(event):
 
 
 # ============================================================
-# THESPORTSDB REQUEST
+# API REQUEST
 # ============================================================
 
 def sportsdb_get(endpoint, params=None):
@@ -550,7 +542,7 @@ def sportsdb_get(endpoint, params=None):
 
 
 # ============================================================
-# EVENTS BY DAY
+# EVENTS FOR DAY
 # ============================================================
 
 def get_events_for_day(
@@ -562,6 +554,7 @@ def get_events_for_day(
     params = {
         "d": date,
     }
+
 
     if sport:
 
@@ -578,18 +571,17 @@ def get_events_for_day(
         params,
     )
 
+
     if not data:
 
         return []
 
 
-    return data.get(
-        "events"
-    ) or []
+    return data.get("events") or []
 
 
 # ============================================================
-# EXACT LEAGUE LOOKUPS
+# EXACT LEAGUE EVENTS
 # ============================================================
 
 def get_premier_league_matches(date):
@@ -667,13 +659,11 @@ def get_rugby_union_events(date):
         sport="Rugby",
     )
 
-    excluded_leagues = {
-
-        "English Rugby League Super League",
-
-        "Australian National Rugby League",
-
+    excluded_ids = {
+        LEAGUES["super_league"],
+        LEAGUES["nrl"],
     }
+
 
     return [
 
@@ -681,9 +671,9 @@ def get_rugby_union_events(date):
 
         for event in events
 
-        if event.get(
-            "strLeague"
-        ) not in excluded_leagues
+        if str(
+            event.get("idLeague")
+        ) not in excluded_ids
 
     ]
 
@@ -737,6 +727,7 @@ def get_tv_channels_for_date(date):
         },
     )
 
+
     if not data:
 
         return {}
@@ -758,31 +749,29 @@ def get_tv_channels_for_date(date):
 
     for broadcast in broadcasts:
 
-        event_id = broadcast.get(
-            "idEvent"
-        )
+        event_id = broadcast.get("idEvent")
+
+        if not event_id:
+
+            continue
+
 
         channel = (
 
-            broadcast.get(
-                "strChannel"
-            )
+            broadcast.get("strChannel")
 
-            or broadcast.get(
-                "strEvent"
-            )
+            or broadcast.get("strEvent")
 
         )
 
+
         country = (
-            broadcast.get(
-                "strCountry"
-            )
+            broadcast.get("strCountry")
             or ""
         )
 
 
-        if not event_id or not channel:
+        if not channel:
 
             continue
 
@@ -803,190 +792,144 @@ def get_tv_channels_for_date(date):
 
 
 # ============================================================
-# WORLDWIDE TV CHANNELS
+# CLEAN CHANNELS
 # ============================================================
 
-def get_worldwide_channels(events):
+def clean_tv_channels(channels):
 
-    channels_by_date = {}
+    seen = set()
 
-    tv_cache = {}
-
-
-    for event in events:
-
-        event_date = event.get(
-            "dateEvent"
-        )
-
-        if not event_date:
-
-            continue
+    cleaned = []
 
 
-        if event_date not in tv_cache:
+    for item in channels:
 
-            tv_cache[event_date] = (
-                get_tv_channels_for_date(
-                    event_date
-                )
-            )
+        channel = item.get("channel")
 
-
-        event_id = str(
-            event.get(
-                "idEvent"
-            )
+        country = (
+            item.get("country")
             or ""
         )
 
 
-        channels = tv_cache[
-            event_date
-        ].get(
-            event_id,
-            [],
+        if not channel:
+
+            continue
+
+
+        key = (
+            channel.lower(),
+            country.lower(),
         )
 
 
-        if channels:
+        if key in seen:
 
-            channels_by_date.setdefault(
-                event_date,
-                [],
-            ).extend(
-                channels
-            )
+            continue
 
 
-    return channels_by_date
+        seen.add(key)
+
+        cleaned.append({
+
+            "channel": channel,
+
+            "country": country,
+
+        })
 
 
-def build_worldwide_message(events):
-
-    channels_by_date = (
-        get_worldwide_channels(
-            events
-        )
-    )
-
-
-    if not channels_by_date:
-
-        return (
-            "🌍 **WORLDWIDE TV CHANNELS**\n\n"
-            "No worldwide TV information is currently available."
-        )
-
-
-    lines = [
-
-        "🌍 **WORLDWIDE TV CHANNELS**",
-
-        "",
-
-    ]
-
-
-    for event_date in sorted(
-        channels_by_date
-    ):
-
-        lines.append(
-            f"📅 **{format_display_date(event_date)}**"
-        )
-
-        lines.append("")
-
-
-        grouped = {}
-
-
-        for item in channels_by_date[
-            event_date
-        ]:
-
-            country = (
-                item["country"]
-                or "International"
-            )
-
-            grouped.setdefault(
-                country,
-                [],
-            ).append(
-                item["channel"]
-            )
-
-
-        for country in sorted(
-            grouped
-        ):
-
-            unique_channels = []
-
-
-            for channel in grouped[country]:
-
-                if channel not in unique_channels:
-
-                    unique_channels.append(
-                        channel
-                    )
-
-
-            lines.append(
-                f"🌍 **{country}**"
-            )
-
-
-            for channel in unique_channels[:20]:
-
-                lines.append(
-                    f"• {channel}"
-                )
-
-
-            lines.append("")
-
-
-    return "\n".join(
-        lines
-    ).strip()
+    return cleaned
 
 
 # ============================================================
-# EVENT FORMATTING
+# EVENT TV DISPLAY
+# ============================================================
+
+def format_event_channels(
+    event,
+    tv_by_event,
+):
+
+    event_id = str(
+        event.get("idEvent")
+        or ""
+    )
+
+
+    channels = tv_by_event.get(
+        event_id,
+        [],
+    )
+
+
+    channels = clean_tv_channels(
+        channels
+    )
+
+
+    if not channels:
+
+        return (
+            "📺 TV: Not currently listed"
+        )
+
+
+    display = []
+
+
+    for item in channels[:4]:
+
+        channel = item["channel"]
+
+        country = item["country"]
+
+
+        if country:
+
+            display.append(
+                f"{channel} ({country})"
+            )
+
+        else:
+
+            display.append(channel)
+
+
+    return (
+        "📺 "
+        + " • ".join(display)
+    )
+
+
+# ============================================================
+# EVENT TITLE
 # ============================================================
 
 def event_title(event):
 
-    if event.get(
-        "strEvent"
-    ):
+    if event.get("strEvent"):
 
-        return event.get(
-            "strEvent"
-        )
+        return event.get("strEvent")
 
 
     home = (
-        event.get(
-            "strHomeTeam"
-        )
+        event.get("strHomeTeam")
         or "Home"
     )
 
     away = (
-        event.get(
-            "strAwayTeam"
-        )
+        event.get("strAwayTeam")
         or "Away"
     )
 
 
     return f"{home} vs {away}"
 
+
+# ============================================================
+# EVENT LOCATION
+# ============================================================
 
 def event_location(event):
 
@@ -1011,9 +954,14 @@ def event_location(event):
     return " • ".join(parts)
 
 
+# ============================================================
+# EVENT BLOCK
+# ============================================================
+
 def build_event_block(
     event,
     icon,
+    tv_by_event,
 ):
 
     lines = [
@@ -1025,13 +973,9 @@ def build_event_block(
     ]
 
 
-    league = event.get(
-        "strLeague"
-    )
+    league = event.get("strLeague")
 
-    location = event_location(
-        event
-    )
+    location = event_location(event)
 
 
     if league:
@@ -1048,10 +992,22 @@ def build_event_block(
         )
 
 
-    return "\n".join(
-        lines
+    lines.append(
+
+        format_event_channels(
+            event,
+            tv_by_event,
+        )
+
     )
 
+
+    return "\n".join(lines)
+
+
+# ============================================================
+# SORT EVENTS
+# ============================================================
 
 def sort_events(events):
 
@@ -1061,19 +1017,13 @@ def sort_events(events):
 
         key=lambda event: (
 
-            event.get(
-                "dateEvent"
-            )
+            event.get("dateEvent")
             or "9999-99-99",
 
-            event.get(
-                "strTimestamp"
-            )
+            event.get("strTimestamp")
             or "",
 
-            event.get(
-                "strTime"
-            )
+            event.get("strTime")
             or "99:99",
 
         ),
@@ -1082,7 +1032,7 @@ def sort_events(events):
 
 
 # ============================================================
-# TODAY MESSAGE
+# BUILD TODAY
 # ============================================================
 
 def build_today_message(
@@ -1091,6 +1041,11 @@ def build_today_message(
     date,
     icon,
 ):
+
+    tv_by_event = get_tv_channels_for_date(
+        date
+    )
+
 
     lines = [
 
@@ -1111,32 +1066,29 @@ def build_today_message(
             "No events found."
         )
 
-        return "\n".join(
-            lines
-        )
+        return "\n".join(lines)
 
 
-    for event in sort_events(
-        events
-    ):
+    for event in sort_events(events):
 
         lines.append(
+
             build_event_block(
                 event,
                 icon,
+                tv_by_event,
             )
+
         )
 
         lines.append("")
 
 
-    return "\n".join(
-        lines
-    ).strip()
+    return "\n".join(lines).strip()
 
 
 # ============================================================
-# NEXT 7 DAYS
+# BUILD NEXT 7 DAYS
 # ============================================================
 
 def build_next_7_days_message(
@@ -1152,32 +1104,30 @@ def build_next_7_days_message(
 
     all_events = []
 
+    tv_cache = {}
+
 
     for day_number in range(7):
 
         date = (
 
             start
+            + timedelta(days=day_number)
 
-            + timedelta(
-                days=day_number
-            )
-
-        ).strftime(
-            "%Y-%m-%d"
-        )
+        ).strftime("%Y-%m-%d")
 
 
-        events = event_function(
-            date
-        )
+        events = event_function(date)
 
 
         if events:
 
-            all_events.extend(
-                events
-            )
+            all_events.extend(events)
+
+
+        tv_cache[date] = (
+            get_tv_channels_for_date(date)
+        )
 
 
     lines = [
@@ -1199,27 +1149,20 @@ def build_next_7_days_message(
             "No events found in the next 7 days."
         )
 
-        return "\n".join(
-            lines
-        )
+        return "\n".join(lines)
 
 
     current_date = None
 
 
-    for event in sort_events(
-        all_events
-    ):
+    for event in sort_events(all_events):
 
-        event_date = event.get(
-            "dateEvent"
-        )
+        event_date = event.get("dateEvent")
 
 
         if event_date != current_date:
 
             current_date = event_date
-
 
             lines.append(
 
@@ -1235,6 +1178,10 @@ def build_next_7_days_message(
             build_event_block(
                 event,
                 icon,
+                tv_cache.get(
+                    event_date,
+                    {},
+                ),
             )
 
         )
@@ -1242,13 +1189,154 @@ def build_next_7_days_message(
         lines.append("")
 
 
-    return "\n".join(
-        lines
-    ).strip()
+    return "\n".join(lines).strip()
 
 
 # ============================================================
-# LONG TELEGRAM MESSAGE
+# WORLDWIDE CHANNELS
+# ============================================================
+
+def build_worldwide_message(events):
+
+    if not events:
+
+        return (
+            "🌍 **WORLDWIDE TV CHANNELS**\n\n"
+            "No events found."
+        )
+
+
+    channels_by_date = {}
+
+    tv_cache = {}
+
+
+    for event in events:
+
+        event_date = event.get("dateEvent")
+
+        event_id = str(
+            event.get("idEvent")
+            or ""
+        )
+
+
+        if not event_date or not event_id:
+
+            continue
+
+
+        if event_date not in tv_cache:
+
+            tv_cache[event_date] = (
+                get_tv_channels_for_date(
+                    event_date
+                )
+            )
+
+
+        channels = tv_cache[
+            event_date
+        ].get(
+            event_id,
+            [],
+        )
+
+
+        channels = clean_tv_channels(
+            channels
+        )
+
+
+        if channels:
+
+            channels_by_date.setdefault(
+                event_date,
+                [],
+            ).extend(channels)
+
+
+    if not channels_by_date:
+
+        return (
+            "🌍 **WORLDWIDE TV CHANNELS**\n\n"
+            "No worldwide TV information is currently listed."
+        )
+
+
+    lines = [
+
+        "🌍 **WORLDWIDE TV CHANNELS**",
+
+        "",
+
+    ]
+
+
+    for event_date in sorted(
+        channels_by_date
+    ):
+
+        lines.append(
+
+            f"📅 **{format_display_date(event_date)}**"
+
+        )
+
+        lines.append("")
+
+
+        grouped = {}
+
+
+        for item in channels_by_date[event_date]:
+
+            country = (
+                item["country"]
+                or "International"
+            )
+
+            channel = item["channel"]
+
+
+            grouped.setdefault(
+                country,
+                []
+            ).append(channel)
+
+
+        for country in sorted(grouped):
+
+            lines.append(
+                f"🌍 **{country}**"
+            )
+
+
+            unique_channels = []
+
+
+            for channel in grouped[country]:
+
+                if channel not in unique_channels:
+
+                    unique_channels.append(channel)
+
+
+            for channel in unique_channels[:20]:
+
+                lines.append(
+                    f"• {channel}"
+                )
+
+
+            lines.append("")
+
+
+    return "\n".join(lines).strip()
+
+
+# ============================================================
+# TELEGRAM MESSAGE SPLITTING
 # ============================================================
 
 def split_message(
@@ -1274,9 +1362,7 @@ def split_message(
 
             if current:
 
-                chunks.append(
-                    current
-                )
+                chunks.append(current)
 
                 current = ""
 
@@ -1286,9 +1372,7 @@ def split_message(
 
     if current:
 
-        chunks.append(
-            current
-        )
+        chunks.append(current)
 
 
     return chunks
@@ -1300,9 +1384,7 @@ async def send_long_message(
     reply_markup,
 ):
 
-    chunks = split_message(
-        text
-    )
+    chunks = split_message(text)
 
 
     await query.edit_message_text(
@@ -1396,11 +1478,6 @@ SPORT_CONFIG = {
         "home",
     ),
 
-}
-
-
-UPCOMING_CONFIG = {
-
     "ufc": (
         "UFC",
         get_ufc_events,
@@ -1433,27 +1510,21 @@ UPCOMING_CONFIG = {
 
 
 # ============================================================
-# WORLDWIDE EVENT LOOKUP
+# GET EVENTS FOR WORLDWIDE BUTTON
 # ============================================================
 
 def get_events_for_scope(scope):
 
-    if scope.startswith(
-        "worldwide_"
-    ):
-
-        scope = scope.replace(
-            "worldwide_",
-            "",
-            1,
-        )
+    clean_scope = scope.replace(
+        "worldwide_",
+        "",
+        1,
+    )
 
 
-    if scope.endswith(
-        "_today"
-    ):
+    if clean_scope.endswith("_today"):
 
-        prefix = scope[:-6]
+        prefix = clean_scope[:-6]
 
         if prefix in SPORT_CONFIG:
 
@@ -1466,11 +1537,9 @@ def get_events_for_scope(scope):
             )
 
 
-    if scope.endswith(
-        "_next7"
-    ):
+    if clean_scope.endswith("_next7"):
 
-        prefix = scope[:-6]
+        prefix = clean_scope[:-6]
 
         if prefix in SPORT_CONFIG:
 
@@ -1490,64 +1559,13 @@ def get_events_for_scope(scope):
                 date = (
 
                     start
+                    + timedelta(days=day_number)
 
-                    + timedelta(
-                        days=day_number
-                    )
-
-                ).strftime(
-                    "%Y-%m-%d"
-                )
+                ).strftime("%Y-%m-%d")
 
 
                 events.extend(
-                    event_function(
-                        date
-                    )
-                )
-
-
-            return events
-
-
-    if scope.endswith(
-        "_upcoming"
-    ):
-
-        prefix = scope[:-9]
-
-        if prefix in UPCOMING_CONFIG:
-
-            event_function = UPCOMING_CONFIG[
-                prefix
-            ][1]
-
-            events = []
-
-            start = datetime.now(
-                UK_TIMEZONE
-            ).date()
-
-
-            for day_number in range(7):
-
-                date = (
-
-                    start
-
-                    + timedelta(
-                        days=day_number
-                    )
-
-                ).strftime(
-                    "%Y-%m-%d"
-                )
-
-
-                events.extend(
-                    event_function(
-                        date
-                    )
+                    event_function(date)
                 )
 
 
@@ -1590,18 +1608,12 @@ async def button_handler(
 
     await query.answer()
 
-
     data = query.data
 
 
-    # ========================================================
     # HOME
-    # ========================================================
 
-    if data in (
-        "home",
-        "back",
-    ):
+    if data in ("home", "back"):
 
         await query.edit_message_text(
 
@@ -1616,9 +1628,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
-    # MAIN SPORT MENUS
-    # ========================================================
+    # FOOTBALL
 
     if data == "football":
 
@@ -1636,6 +1646,8 @@ async def button_handler(
         return
 
 
+    # RUGBY
+
     if data == "rugby":
 
         await query.edit_message_text(
@@ -1651,6 +1663,8 @@ async def button_handler(
 
         return
 
+
+    # COMBAT
 
     if data == "combat":
 
@@ -1668,9 +1682,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
-    # FOOTBALL
-    # ========================================================
+    # FOOTBALL LEAGUES
 
     if data == "premier":
 
@@ -1710,9 +1722,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
-    # RUGBY
-    # ========================================================
+    # RUGBY LEAGUES
 
     rugby_titles = {
 
@@ -1747,9 +1757,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
-    # GENERIC SPORTS
-    # ========================================================
+    # OTHER SPORTS
 
     generic_titles = {
 
@@ -1765,6 +1773,9 @@ async def button_handler(
         "f1":
             "🏎️ **FORMULA 1**",
 
+        "golf":
+            "🏌️ **GOLF**",
+
     }
 
 
@@ -1775,9 +1786,7 @@ async def button_handler(
             f"{generic_titles[data]}\n\n"
             "Choose an option:",
 
-            reply_markup=sport_menu(
-                data
-            ),
+            reply_markup=sport_menu(data),
 
             parse_mode="Markdown",
 
@@ -1786,9 +1795,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
-    # COMBAT
-    # ========================================================
+    # COMBAT SPORTS
 
     combat_titles = {
 
@@ -1811,7 +1818,7 @@ async def button_handler(
             f"{combat_titles[data]}\n\n"
             "Choose an option:",
 
-            reply_markup=upcoming_menu(
+            reply_markup=sport_menu(
                 data,
                 "combat",
             ),
@@ -1823,32 +1830,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
-    # GOLF
-    # ========================================================
-
-    if data == "golf":
-
-        await query.edit_message_text(
-
-            "🏌️ **GOLF**\n\n"
-            "Choose an option:",
-
-            reply_markup=upcoming_menu(
-                "golf",
-                "home",
-            ),
-
-            parse_mode="Markdown",
-
-        )
-
-        return
-
-
-    # ========================================================
-    # TODAY / NEXT 7 RESULTS
-    # ========================================================
+    # TODAY / NEXT 7
 
     for prefix, details in SPORT_CONFIG.items():
 
@@ -1861,41 +1843,24 @@ async def button_handler(
         back_callback = details[3]
 
 
-        today_callbacks = [
+        if data in (
 
             f"{prefix}_today",
 
             f"today_{prefix}",
 
-        ]
-
-
-        next7_callbacks = [
-
-            f"{prefix}_next7",
-
-            f"next7_{prefix}",
-
-        ]
-
-
-        if data in today_callbacks:
+        ):
 
             date = get_uk_date()
 
-            events = event_function(
-                date
-            )
+            events = event_function(date)
 
 
             message = build_today_message(
 
                 title,
-
                 events,
-
                 date,
-
                 icon,
 
             )
@@ -1920,7 +1885,13 @@ async def button_handler(
             return
 
 
-        if data in next7_callbacks:
+        if data in (
+
+            f"{prefix}_next7",
+
+            f"next7_{prefix}",
+
+        ):
 
             message = build_next_7_days_message(
 
@@ -1952,69 +1923,13 @@ async def button_handler(
             return
 
 
-    # ========================================================
-    # UPCOMING EVENTS
-    # ========================================================
-
-    for prefix, details in UPCOMING_CONFIG.items():
-
-        title = details[0]
-
-        event_function = details[1]
-
-        icon = details[2]
-
-        back_callback = details[3]
-
-
-        if data == f"{prefix}_upcoming":
-
-            message = build_next_7_days_message(
-
-                title,
-
-                event_function,
-
-                icon,
-
-            )
-
-
-            await send_long_message(
-
-                query,
-
-                message,
-
-                results_menu(
-
-                    back_callback,
-
-                    f"worldwide_{prefix}_upcoming",
-
-                ),
-
-            )
-
-            return
-
-
-    # ========================================================
     # WORLDWIDE CHANNELS
-    # ========================================================
 
-    if data.startswith(
-        "worldwide_"
-    ):
+    if data.startswith("worldwide_"):
 
-        events = get_events_for_scope(
-            data
-        )
+        events = get_events_for_scope(data)
 
-
-        message = build_worldwide_message(
-            events
-        )
+        message = build_worldwide_message(events)
 
 
         clean_scope = data.replace(
@@ -2025,10 +1940,7 @@ async def button_handler(
 
 
         if clean_scope.startswith(
-            (
-                "premier",
-                "championship",
-            )
+            ("premier", "championship")
         ):
 
             back_callback = "football"
@@ -2046,11 +1958,7 @@ async def button_handler(
 
 
         elif clean_scope.startswith(
-            (
-                "ufc",
-                "boxing",
-                "wwe",
-            )
+            ("ufc", "boxing", "wwe")
         ):
 
             back_callback = "combat"
@@ -2069,9 +1977,7 @@ async def button_handler(
 
             InlineKeyboardMarkup([
 
-                navigation_row(
-                    back_callback
-                ),
+                navigation_row(back_callback),
 
             ]),
 
@@ -2080,9 +1986,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
     # MY ALERTS
-    # ========================================================
 
     if data == "my_alerts":
 
@@ -2090,14 +1994,12 @@ async def button_handler(
 
             "🔔 **MY ALERTS**\n\n"
             "Coming soon.\n\n"
-            "This will let you choose teams, sports "
-            "and live alerts.",
+            "Choose your favourite sports and teams "
+            "for personalised alerts.",
 
             reply_markup=InlineKeyboardMarkup([
 
-                navigation_row(
-                    "home"
-                ),
+                navigation_row("home"),
 
             ]),
 
@@ -2108,9 +2010,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
     # MY TEAMS
-    # ========================================================
 
     if data == "my_teams":
 
@@ -2118,14 +2018,12 @@ async def button_handler(
 
             "⭐ **MY TEAMS**\n\n"
             "Coming soon.\n\n"
-            "You will be able to save favourite teams "
-            "and quickly view their fixtures.",
+            "Save your favourite teams and quickly "
+            "view fixtures and alerts.",
 
             reply_markup=InlineKeyboardMarkup([
 
-                navigation_row(
-                    "home"
-                ),
+                navigation_row("home"),
 
             ]),
 
@@ -2136,9 +2034,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
     # PREMIUM
-    # ========================================================
 
     if data == "premium":
 
@@ -2149,17 +2045,15 @@ async def button_handler(
             "Premium features coming soon:\n\n"
 
             "🔔 Live alerts\n"
-            "⭐ Favourite team alerts\n"
+            "⭐ Favourite teams\n"
+            "⚽ Goal alerts\n"
             "🏎️ F1 alerts\n"
-            "🥊 UFC & boxing alerts\n"
-            "📺 Worldwide TV channels\n"
-            "⚡ Faster notifications",
+            "🥊 Combat alerts\n"
+            "📺 Worldwide TV coverage",
 
             reply_markup=InlineKeyboardMarkup([
 
-                navigation_row(
-                    "home"
-                ),
+                navigation_row("home"),
 
             ]),
 
@@ -2170,9 +2064,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
     # HELP
-    # ========================================================
 
     if data == "help":
 
@@ -2180,22 +2072,18 @@ async def button_handler(
 
             "ℹ️ **HELP**\n\n"
 
-            "Choose a sport, then choose a competition "
-            "or event type.\n\n"
+            "Select a sport and competition.\n\n"
 
             "You can view:\n\n"
 
-            "📅 Today's events\n"
+            "📅 Today's fixtures\n"
             "➡️ Next 7 days\n"
-            "🌍 Worldwide TV channels\n\n"
-
-            "More features are coming soon.",
+            "📺 Available TV channels\n"
+            "🌍 Worldwide TV coverage",
 
             reply_markup=InlineKeyboardMarkup([
 
-                navigation_row(
-                    "home"
-                ),
+                navigation_row("home"),
 
             ]),
 
@@ -2206,9 +2094,7 @@ async def button_handler(
         return
 
 
-    # ========================================================
     # FALLBACK
-    # ========================================================
 
     await query.edit_message_text(
 
@@ -2231,11 +2117,8 @@ async def error_handler(
 ):
 
     logger.exception(
-
         "Exception while handling update:",
-
         exc_info=context.error,
-
     )
 
 
@@ -2249,9 +2132,7 @@ def main():
 
         Application.builder()
 
-        .token(
-            TELEGRAM_TOKEN
-        )
+        .token(TELEGRAM_TOKEN)
 
         .build()
 
@@ -2291,7 +2172,7 @@ def main():
 
 
 # ============================================================
-# START BOT
+# RUN
 # ============================================================
 
 if __name__ == "__main__":
