@@ -1,3 +1,4 @@
+```python
 import os
 import logging
 from datetime import datetime
@@ -11,6 +12,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -18,18 +20,18 @@ from telegram.ext import (
     ContextTypes,
 )
 
+
 # ============================================================
-# LOAD ENVIRONMENT VARIABLES
+# ENVIRONMENT VARIABLES
 # ============================================================
 
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-# TheSportsDB free development key
 FOOTBALL_API_KEY = os.getenv("FOOTBALL_API_KEY", "123")
 
 UK_TIMEZONE = ZoneInfo("Europe/London")
+
 
 # ============================================================
 # LOGGING
@@ -42,66 +44,124 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
 # ============================================================
-# OFFICIAL TV CHANNEL DATA
-#
-# Add verified UK TV channels here when known.
-# Format:
-# (date, home team, away team): channel
+# UK TV CHANNELS
 # ============================================================
 
 OFFICIAL_TV = {
-    ("2026-08-21", "arsenal", "coventry city"):
-        "Sky Sports Premier League",
+    (
+        "2026-08-21",
+        "arsenal",
+        "coventry city",
+    ): "Sky Sports Premier League",
 
-    ("2026-08-22", "hull city", "manchester united"):
-        "TNT Sports",
+    (
+        "2026-08-22",
+        "hull city",
+        "manchester united",
+    ): "TNT Sports",
 
-    ("2026-08-22", "brentford", "tottenham hotspur"):
-        "Sky Sports Premier League",
+    (
+        "2026-08-22",
+        "brentford",
+        "tottenham hotspur",
+    ): "Sky Sports Premier League",
 }
 
 
 # ============================================================
-# MAIN MENU
+# FALLBACK FIXTURES
+#
+# Used if TheSportsDB does not return fixtures.
+# ============================================================
+
+FALLBACK_FIXTURES = {
+    "2026-08-21": [
+        {
+            "strHomeTeam": "Arsenal",
+            "strAwayTeam": "Coventry City",
+            "strTime": "20:00:00",
+            "strLeague": "English Premier League",
+        }
+    ],
+
+    "2026-08-22": [
+        {
+            "strHomeTeam": "Hull City",
+            "strAwayTeam": "Manchester United",
+            "strTime": "12:30:00",
+            "strLeague": "English Premier League",
+        },
+        {
+            "strHomeTeam": "Ipswich Town",
+            "strAwayTeam": "Sunderland",
+            "strTime": "15:00:00",
+            "strLeague": "English Premier League",
+        },
+        {
+            "strHomeTeam": "Nottingham Forest",
+            "strAwayTeam": "Leeds United",
+            "strTime": "15:00:00",
+            "strLeague": "English Premier League",
+        },
+        {
+            "strHomeTeam": "Everton",
+            "strAwayTeam": "Crystal Palace",
+            "strTime": "15:00:00",
+            "strLeague": "English Premier League",
+        },
+        {
+            "strHomeTeam": "Brentford",
+            "strAwayTeam": "Tottenham Hotspur",
+            "strTime": "17:30:00",
+            "strLeague": "English Premier League",
+        },
+    ],
+}
+
+
+# ============================================================
+# MAIN SPORTS MENU
 # ============================================================
 
 def main_menu():
+
     keyboard = [
         [
             InlineKeyboardButton(
                 "⚽ Football",
-                callback_data="football"
+                callback_data="football",
             ),
             InlineKeyboardButton(
                 "🏎️ Formula 1",
-                callback_data="f1"
+                callback_data="f1",
             ),
         ],
         [
             InlineKeyboardButton(
                 "🏀 Basketball",
-                callback_data="basketball"
+                callback_data="basketball",
             ),
             InlineKeyboardButton(
                 "🏈 NFL",
-                callback_data="nfl"
+                callback_data="nfl",
             ),
         ],
         [
             InlineKeyboardButton(
                 "🏉 Rugby",
-                callback_data="rugby"
+                callback_data="rugby",
             ),
             InlineKeyboardButton(
                 "🎾 Tennis",
-                callback_data="tennis"
+                callback_data="tennis",
             ),
         ],
         [
             InlineKeyboardButton(
                 "🎯 Darts",
-                callback_data="darts"
+                callback_data="darts",
             ),
         ],
     ]
@@ -114,23 +174,24 @@ def main_menu():
 # ============================================================
 
 def football_menu():
+
     keyboard = [
         [
             InlineKeyboardButton(
                 "📅 Today's Premier League Games",
-                callback_data="today"
+                callback_data="today",
             ),
         ],
         [
             InlineKeyboardButton(
                 "🔜 Upcoming Premier League Games",
-                callback_data="upcoming"
+                callback_data="upcoming",
             ),
         ],
         [
             InlineKeyboardButton(
-                "⬅️ Back",
-                callback_data="back"
+                "⬅️ Back to Sports",
+                callback_data="back",
             ),
         ],
     ]
@@ -139,15 +200,16 @@ def football_menu():
 
 
 # ============================================================
-# BACK BUTTON
+# BACK MENU
 # ============================================================
 
 def back_menu():
+
     keyboard = [
         [
             InlineKeyboardButton(
                 "⬅️ Back to Sports",
-                callback_data="back"
+                callback_data="back",
             ),
         ],
     ]
@@ -156,25 +218,36 @@ def back_menu():
 
 
 # ============================================================
-# GET TODAY'S DATE IN UK
+# GET UK DATE
 # ============================================================
 
 def get_uk_date():
-    return datetime.now(UK_TIMEZONE).strftime("%Y-%m-%d")
+
+    return datetime.now(
+        UK_TIMEZONE
+    ).strftime("%Y-%m-%d")
 
 
 # ============================================================
 # GET TV CHANNEL
 # ============================================================
 
-def get_tv_channel(date, home_team, away_team):
+def get_tv_channel(
+    date,
+    home_team,
+    away_team,
+):
+
     key = (
         date,
         home_team.lower().strip(),
         away_team.lower().strip(),
     )
 
-    return OFFICIAL_TV.get(key, "TV channel not yet confirmed")
+    return OFFICIAL_TV.get(
+        key,
+        "Premiership folder",
+    )
 
 
 # ============================================================
@@ -182,8 +255,9 @@ def get_tv_channel(date, home_team, away_team):
 # ============================================================
 
 def get_premier_league_matches(date):
+
     url = (
-        f"https://www.thesportsdb.com/api/v1/json/"
+        "https://www.thesportsdb.com/api/v1/json/"
         f"{FOOTBALL_API_KEY}/eventsday.php"
     )
 
@@ -193,6 +267,7 @@ def get_premier_league_matches(date):
     }
 
     try:
+
         response = requests.get(
             url,
             params=params,
@@ -203,27 +278,52 @@ def get_premier_league_matches(date):
 
         data = response.json()
 
-        events = data.get("events")
-
-        if not events:
-            return []
+        events = data.get(
+            "events",
+            [],
+        )
 
         premier_league_games = []
 
         for event in events:
-            league = event.get("strLeague", "")
 
-            if "Premier League" in league:
-                premier_league_games.append(event)
+            league = event.get(
+                "strLeague",
+                "",
+            )
 
-        return premier_league_games
+            if (
+                "Premier League" in league
+                or "English Premier League" in league
+            ):
 
-    except Exception as error:
-        logger.error(
-            f"Error getting football matches: {error}"
+                premier_league_games.append(
+                    event
+                )
+
+        # If TheSportsDB found games, use them
+        if premier_league_games:
+
+            return premier_league_games
+
+        # Otherwise use our fallback fixtures
+        return FALLBACK_FIXTURES.get(
+            date,
+            [],
         )
 
-        return None
+    except Exception as error:
+
+        logger.error(
+            "Error getting football matches: %s",
+            error,
+        )
+
+        # If API fails, still use fallback fixtures
+        return FALLBACK_FIXTURES.get(
+            date,
+            [],
+        )
 
 
 # ============================================================
@@ -231,46 +331,81 @@ def get_premier_league_matches(date):
 # ============================================================
 
 def format_match_time(event):
-    time = event.get("strTime")
 
-    if not time:
+    match_time = event.get(
+        "strTime"
+    )
+
+    if not match_time:
+
         return "Time TBC"
+
+    return match_time[:5]
+
+
+# ============================================================
+# FORMAT DATE FOR DISPLAY
+# ============================================================
+
+def format_display_date(date):
 
     try:
-        return time[:5]
+
+        date_object = datetime.strptime(
+            date,
+            "%Y-%m-%d",
+        )
+
+        return date_object.strftime(
+            "%A %-d %B %Y"
+        )
+
     except Exception:
-        return "Time TBC"
+
+        return date
 
 
 # ============================================================
-# CREATE FOOTBALL MESSAGE
+# CREATE MATCH MESSAGE
 # ============================================================
 
-def create_matches_message(date, matches):
+def create_matches_message(
+    date,
+    matches,
+):
+
+    display_date = format_display_date(
+        date
+    )
+
     if not matches:
+
         return (
-            "⚽ *PREMIER LEAGUE*\n\n"
-            f"📅 {date}\n\n"
-            "No Premier League matches found."
+            "⚽ *PREMIER LEAGUE TODAY*\n\n"
+            f"📅 {display_date}\n\n"
+            "😴 There are no Premier League games today."
         )
 
     message = (
-        "⚽ *PREMIER LEAGUE*\n\n"
-        f"📅 {date}\n\n"
+        "⚽ *PREMIER LEAGUE TODAY*\n\n"
+        f"📅 {display_date}\n\n"
     )
 
     for event in matches:
+
         home_team = event.get(
             "strHomeTeam",
-            "Home Team"
+            "Home Team",
         )
 
         away_team = event.get(
             "strAwayTeam",
-            "Away Team"
+            "Away Team",
         )
 
-        match_time = format_match_time(event)
+        match_time = format_match_time(
+            event
+        )
 
         channel = get_tv_channel(
             date,
@@ -279,8 +414,8 @@ def create_matches_message(date, matches):
         )
 
         message += (
-            f"🕐 *{match_time}*\n"
             f"⚽ {home_team} vs {away_team}\n"
+            f"🕒 {match_time}\n"
             f"📺 {channel}\n\n"
         )
 
@@ -295,9 +430,10 @@ async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+
     await update.message.reply_text(
         "🏆 *SPORTS TV BOT*\n\n"
-        "Choose a sport:",
+        "Choose a sport below 👇",
         reply_markup=main_menu(),
         parse_mode="Markdown",
     )
@@ -311,16 +447,12 @@ async def today_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+
     date = get_uk_date()
 
-    matches = get_premier_league_matches(date)
-
-    if matches is None:
-        await update.message.reply_text(
-            "❌ I couldn't get today's matches right now.\n\n"
-            "Please try again in a moment."
-        )
-        return
+    matches = get_premier_league_matches(
+        date
+    )
 
     message = create_matches_message(
         date,
@@ -338,12 +470,11 @@ async def today_command(
 # UPCOMING MATCHES
 # ============================================================
 
-async def upcoming_matches(
-    query,
-):
+async def upcoming_matches(query):
+
     await query.edit_message_text(
         "🔜 *UPCOMING PREMIER LEAGUE MATCHES*\n\n"
-        "This feature is coming next.",
+        "This section will show upcoming matches next.",
         reply_markup=football_menu(),
         parse_mode="Markdown",
     )
@@ -357,57 +488,51 @@ async def button_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+
     query = update.callback_query
 
     await query.answer()
 
     choice = query.data
 
-    # --------------------------------------------------------
-    # MAIN MENU
-    # --------------------------------------------------------
+
+    # BACK TO MAIN MENU
 
     if choice == "back":
+
         await query.edit_message_text(
             "🏆 *SPORTS TV BOT*\n\n"
-            "Choose a sport:",
+            "Choose a sport below 👇",
             reply_markup=main_menu(),
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
+
     # FOOTBALL
-    # --------------------------------------------------------
 
     elif choice == "football":
+
         await query.edit_message_text(
             "⚽ *FOOTBALL*\n\n"
-            "Choose an option:",
+            "Choose an option below 👇",
             reply_markup=football_menu(),
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
-    # TODAY'S PREMIER LEAGUE MATCHES
-    # --------------------------------------------------------
+
+    # TODAY
 
     elif choice == "today":
+
         date = get_uk_date()
 
         await query.edit_message_text(
             "⏳ Getting today's Premier League matches..."
         )
 
-        matches = get_premier_league_matches(date)
-
-        if matches is None:
-            await query.edit_message_text(
-                "❌ I couldn't get today's matches.\n\n"
-                "Please try again later.",
-                reply_markup=football_menu(),
-            )
-
-            return
+        matches = get_premier_league_matches(
+            date
+        )
 
         message = create_matches_message(
             date,
@@ -420,87 +545,83 @@ async def button_handler(
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
-    # UPCOMING FOOTBALL
-    # --------------------------------------------------------
+
+    # UPCOMING
 
     elif choice == "upcoming":
-        await upcoming_matches(query)
 
-    # --------------------------------------------------------
+        await upcoming_matches(
+            query
+        )
+
+
     # FORMULA 1
-    # --------------------------------------------------------
 
     elif choice == "f1":
+
         await query.edit_message_text(
             "🏎️ *FORMULA 1*\n\n"
-            "Upcoming F1 races and UK TV coverage "
-            "will appear here.",
+            "F1 races and TV coverage will be added here.",
             reply_markup=back_menu(),
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
+
     # BASKETBALL
-    # --------------------------------------------------------
 
     elif choice == "basketball":
+
         await query.edit_message_text(
             "🏀 *BASKETBALL*\n\n"
-            "Upcoming basketball games and UK TV "
-            "coverage will appear here.",
+            "Basketball games and TV coverage will be added here.",
             reply_markup=back_menu(),
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
+
     # NFL
-    # --------------------------------------------------------
 
     elif choice == "nfl":
+
         await query.edit_message_text(
             "🏈 *NFL*\n\n"
-            "Upcoming NFL games and UK TV coverage "
-            "will appear here.",
+            "NFL games and TV coverage will be added here.",
             reply_markup=back_menu(),
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
+
     # RUGBY
-    # --------------------------------------------------------
 
     elif choice == "rugby":
+
         await query.edit_message_text(
             "🏉 *RUGBY*\n\n"
-            "Upcoming rugby matches and UK TV coverage "
-            "will appear here.",
+            "Rugby fixtures and TV coverage will be added here.",
             reply_markup=back_menu(),
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
+
     # TENNIS
-    # --------------------------------------------------------
 
     elif choice == "tennis":
+
         await query.edit_message_text(
             "🎾 *TENNIS*\n\n"
-            "Upcoming tennis tournaments and UK TV "
-            "coverage will appear here.",
+            "Tennis events and TV coverage will be added here.",
             reply_markup=back_menu(),
             parse_mode="Markdown",
         )
 
-    # --------------------------------------------------------
+
     # DARTS
-    # --------------------------------------------------------
 
     elif choice == "darts":
+
         await query.edit_message_text(
             "🎯 *DARTS*\n\n"
-            "Upcoming darts events and UK TV coverage "
-            "will appear here.",
+            "Darts events and TV coverage will be added here.",
             reply_markup=back_menu(),
             parse_mode="Markdown",
         )
@@ -514,6 +635,7 @@ async def error_handler(
     update: object,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+
     logger.error(
         "Exception while handling an update:",
         exc_info=context.error,
@@ -527,6 +649,7 @@ async def error_handler(
 def main():
 
     if not TELEGRAM_TOKEN:
+
         raise ValueError(
             "ERROR: TELEGRAM_TOKEN is missing!"
         )
@@ -537,26 +660,39 @@ def main():
         .build()
     )
 
-    # Commands
-    application.add_handler(
-        CommandHandler("start", start)
-    )
 
     application.add_handler(
-        CommandHandler("today", today_command)
+        CommandHandler(
+            "start",
+            start,
+        )
     )
 
-    # Button clicks
+
     application.add_handler(
-        CallbackQueryHandler(button_handler)
+        CommandHandler(
+            "today",
+            today_command,
+        )
     )
 
-    # Errors
+
+    application.add_handler(
+        CallbackQueryHandler(
+            button_handler
+        )
+    )
+
+
     application.add_error_handler(
         error_handler
     )
 
-    print("Sports TV Bot is running...")
+
+    print(
+        "Sports TV Bot is running..."
+    )
+
 
     application.run_polling()
 
@@ -567,3 +703,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
