@@ -536,7 +536,7 @@ def get_super_league_events(date):
     return get_events_for_day(
         date,
         sport="Rugby",
-        league="Super League",
+        league="English Rugby League Super League",
     )
 
 
