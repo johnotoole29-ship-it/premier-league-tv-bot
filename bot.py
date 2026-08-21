@@ -1168,4 +1168,7 @@ def home_text():
 
     return (
         "🔥 **SPORT PULSE ALERTS**\n\n"
-        "Yo
+                "👆 Select a sport to get started.\n\n"
+        "📺 Find fixtures, TV channels and upcoming events.\n\n"
+        "🌍 Use Worldwide Channels to see international broadcasts."
+    )
