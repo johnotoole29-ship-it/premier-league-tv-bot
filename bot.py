@@ -101,8 +101,8 @@ def main_menu():
                 callback_data="cricket",
             ),
             InlineKeyboardButton(
-                "🏀 Basketball",
-                callback_data="basketball",
+                "🏇 Horse Racing",
+                callback_data="horse_racing",
             ),
         ],
 
@@ -1456,9 +1456,9 @@ async def button_handler(
             "🏏",
         ),
 
-        "basketball": (
-            "BASKETBALL",
-            "🏀",
+        "horse_racing": (
+            "HORSE RACING",
+            "🏇",
         ),
 
         "tennis": (
@@ -1812,10 +1812,10 @@ async def button_handler(
             "🏏",
         ),
 
-        "basketball": (
-            "Basketball",
-            "Basketball",
-            "🏀",
+        "horse_racing": (
+            "Horse Racing",
+            "Horse Racing",
+            "🏇",
         ),
 
         "tennis": (
