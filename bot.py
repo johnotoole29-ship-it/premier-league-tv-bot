@@ -1171,3 +1171,63 @@ def home_text():
         "📺 Find fixtures, TV channels and upcoming events.\n\n"
         "🌍 Use Worldwide Channels to see international broadcasts."
     )
+
+# ============================================================
+# BOT STARTUP
+# ============================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        home_text(),
+        reply_markup=main_menu(),
+        parse_mode="Markdown",
+    )
+
+
+async def button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    await query.message.reply_text(
+        "⚡ This menu section is being loaded."
+    )
+
+
+# ============================================================
+# START BOT
+# ============================================================
+
+def main():
+
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .build()
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start,
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            button_handler,
+        )
+    )
+
+    logger.info("SPORT PULSE ALERTS BOT STARTING...")
+
+    application.run_polling()
+
+
+if __name__ == "__main__":
+    main()
