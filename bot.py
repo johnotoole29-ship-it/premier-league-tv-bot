@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-import html
+import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,12 @@ from telegram.ext import (
 
 
 # ============================================================
+# SPORT PULSE ALERTS
+# COMPLETE BOT.PY
+# ============================================================
+
+
+# ============================================================
 # CONFIG
 # ============================================================
 
@@ -34,7 +40,9 @@ SPORTSDB_API_KEY = (
 
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
-SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
+SPORTSDB_BASE = (
+    "https://www.thesportsdb.com/api/v1/json"
+)
 
 DATA_FILE = "sportpulse_data.json"
 
@@ -44,13 +52,18 @@ DATA_FILE = "sportpulse_data.json"
 # ============================================================
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=(
+        "%(asctime)s - "
+        "%(name)s - "
+        "%(levelname)s - "
+        "%(message)s"
+    ),
     level=logging.INFO,
 )
 
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
-logger = logging.getLogger("SportPulseAlerts")
+logger = logging.getLogger(
+    "SportPulseAlerts"
+)
 
 
 # ============================================================
@@ -66,7 +79,7 @@ if not TELEGRAM_TOKEN:
 if not SPORTSDB_API_KEY:
     raise RuntimeError(
         "SPORTSDB_API_KEY is missing. "
-        "Add your TheSportsDB Premium API key."
+        "Add your TheSportsDB API key to Bunny.net."
     )
 
 
@@ -92,16 +105,23 @@ def load_data():
 
             data = json.load(file)
 
-        if "users" not in data:
-            data["users"] = {}
+        if not isinstance(data, dict):
+
+            return {
+                "users": {}
+            }
+
+        data.setdefault(
+            "users",
+            {}
+        )
 
         return data
 
-    except Exception as error:
+    except Exception:
 
-        logger.error(
-            "Could not load data: %s",
-            error,
+        logger.exception(
+            "Could not load data"
         )
 
         return {
@@ -109,7 +129,7 @@ def load_data():
         }
 
 
-def save_data(data):
+def save_data():
 
     try:
 
@@ -120,24 +140,23 @@ def save_data(data):
         ) as file:
 
             json.dump(
-                data,
+                DATA,
                 file,
                 indent=2,
                 ensure_ascii=False,
             )
 
-    except Exception as error:
+    except Exception:
 
-        logger.error(
-            "Could not save data: %s",
-            error,
+        logger.exception(
+            "Could not save data"
         )
 
 
 DATA = load_data()
 
 
-def get_user_data(user_id):
+def get_user(user_id):
 
     user_id = str(user_id)
 
@@ -148,13 +167,13 @@ def get_user_data(user_id):
             "alerts": [],
         }
 
-        save_data(DATA)
+        save_data()
 
     return DATA["users"][user_id]
 
 
 # ============================================================
-# DATE / TIME
+# TIME FUNCTIONS
 # ============================================================
 
 def uk_now():
@@ -164,14 +183,14 @@ def uk_now():
     )
 
 
-def get_uk_date():
+def today_string():
 
     return uk_now().strftime(
         "%Y-%m-%d"
     )
 
 
-def format_display_date(date_string):
+def display_date(date_string):
 
     try:
 
@@ -189,51 +208,67 @@ def format_display_date(date_string):
         return date_string
 
 
-def change_date(
-    date_string,
-    days,
-):
+def event_datetime(event):
+
+    date_value = (
+        event.get("dateEvent")
+        or event.get("dateEventLocal")
+    )
+
+    time_value = (
+        event.get("strTime")
+        or event.get("strEventTime")
+        or "00:00:00"
+    )
+
+    if not date_value:
+
+        return None
 
     try:
 
-        date_object = datetime.strptime(
-            date_string,
-            "%Y-%m-%d",
+        clean_time = str(
+            time_value
+        )[:8]
+
+        if len(clean_time) == 5:
+
+            clean_time += ":00"
+
+        value = datetime.strptime(
+            f"{date_value} {clean_time}",
+            "%Y-%m-%d %H:%M:%S",
         )
 
-        new_date = (
-            date_object
-            + timedelta(days=days)
-        )
-
-        return new_date.strftime(
-            "%Y-%m-%d"
+        return value.replace(
+            tzinfo=UK_TIMEZONE
         )
 
     except Exception:
 
-        return get_uk_date()
+        return None
 
 
-def format_match_time(event):
+def event_time(event):
 
-    event_time = (
-        event.get("strTime")
-        or event.get("strEventTime")
-        or event.get("strTimeLocal")
+    event_date = event_datetime(
+        event
     )
 
-    if not event_time:
+    if not event_date:
+
         return "TBC"
 
-    return str(event_time)[:5]
+    return event_date.strftime(
+        "%H:%M"
+    )
 
 
 # ============================================================
-# SPORTS DB REQUEST
+# SPORTSDB API
 # ============================================================
 
-def sportsdb_get(
+def sportsdb_request(
     endpoint,
     params=None,
 ):
@@ -244,32 +279,23 @@ def sportsdb_get(
         f"{endpoint}"
     )
 
-    logger.info(
-        "SportsDB request: %s",
-        endpoint,
-    )
-
     try:
+
+        logger.info(
+            "SportsDB: %s %s",
+            endpoint,
+            params,
+        )
 
         response = requests.get(
             url,
             params=params or {},
-            timeout=25,
+            timeout=20,
         )
 
         response.raise_for_status()
 
-        data = response.json()
-
-        if not isinstance(data, dict):
-
-            logger.error(
-                "SportsDB returned unexpected data."
-            )
-
-            return None
-
-        return data
+        return response.json()
 
     except requests.RequestException as error:
 
@@ -283,39 +309,54 @@ def sportsdb_get(
     except ValueError as error:
 
         logger.error(
-            "SportsDB returned invalid JSON: %s",
+            "SportsDB JSON error: %s",
             error,
         )
 
         return None
 
 
+async def sportsdb_request_async(
+    endpoint,
+    params=None,
+):
+
+    return await asyncio.to_thread(
+        sportsdb_request,
+        endpoint,
+        params,
+    )
+
+
 # ============================================================
-# EVENTS
+# EVENTS FOR A DAY
 # ============================================================
 
-def get_events_for_day(
+async def get_events_day(
     date,
     sport=None,
     league=None,
 ):
 
     params = {
-        "d": date
+        "d": date,
     }
 
     if sport:
+
         params["s"] = sport
 
     if league:
+
         params["l"] = league
 
-    data = sportsdb_get(
+    data = await sportsdb_request_async(
         "eventsday.php",
         params,
     )
 
     if not data:
+
         return []
 
     return (
@@ -325,10 +366,110 @@ def get_events_for_day(
 
 
 # ============================================================
-# SPORT DEFINITIONS
+# TV FOR A DAY
+# ============================================================
+
+async def get_tv_day(
+    date,
+    sport=None,
+    country=None,
+):
+
+    params = {
+        "d": date,
+    }
+
+    if sport:
+
+        params["s"] = sport
+
+    if country:
+
+        params["a"] = country
+
+    data = await sportsdb_request_async(
+        "eventstv.php",
+        params,
+    )
+
+    if not data:
+
+        return []
+
+    return (
+        data.get("tvevents")
+        or data.get("events")
+        or []
+    )
+
+
+# ============================================================
+# SINGLE EVENT
+# ============================================================
+
+async def lookup_event(
+    event_id
+):
+
+    data = await sportsdb_request_async(
+        "lookupevent.php",
+        {
+            "id": event_id,
+        },
+    )
+
+    if not data:
+
+        return None
+
+    events = (
+        data.get("events")
+        or []
+    )
+
+    if not events:
+
+        return None
+
+    return events[0]
+
+
+# ============================================================
+# EVENT TV
+# ============================================================
+
+async def lookup_event_tv(
+    event_id
+):
+
+    data = await sportsdb_request_async(
+        "lookuptv.php",
+        {
+            "id": event_id,
+        },
+    )
+
+    if not data:
+
+        return []
+
+    return (
+        data.get("tvevents")
+        or data.get("events")
+        or []
+    )
+
+
+# ============================================================
+# SPORTS
 # ============================================================
 
 SPORTS = {
+
+    "football": {
+        "name": "⚽ Football",
+        "sport": "Soccer",
+    },
 
     "rugby": {
         "name": "🏉 Rugby",
@@ -353,6 +494,11 @@ SPORTS = {
     "f1": {
         "name": "🏎️ Formula 1",
         "sport": "Motorsport",
+        "keywords": [
+            "formula 1",
+            "formula one",
+            "f1",
+        ],
     },
 
     "golf": {
@@ -368,504 +514,26 @@ SPORTS = {
 
 
 # ============================================================
-# FOOTBALL
+# SPORT FILTERING
 # ============================================================
 
-def get_premier_league(date):
-
-    events = get_events_for_day(
-        date,
-        sport="Soccer",
-        league="English Premier League",
-    )
-
-    if events:
-        return events
-
-    events = get_events_for_day(
-        date,
-        sport="Soccer",
-    )
-
-    return [
-        event
-        for event in events
-        if "premier league"
-        in (
-            event.get("strLeague")
-            or ""
-        ).lower()
-    ]
-
-
-def get_championship(date):
-
-    events = get_events_for_day(
-        date,
-        sport="Soccer",
-        league="English League Championship",
-    )
-
-    if events:
-        return events
-
-    events = get_events_for_day(
-        date,
-        sport="Soccer",
-    )
-
-    return [
-        event
-        for event in events
-        if "championship"
-        in (
-            event.get("strLeague")
-            or ""
-        ).lower()
-    ]
-
-
-def get_all_football(date):
-
-    return get_events_for_day(
-        date,
-        sport="Soccer",
-    )
-
-
-# ============================================================
-# RUGBY
-# ============================================================
-
-def get_rugby(date):
-
-    events = get_events_for_day(
-        date,
-        sport="Rugby",
-    )
-
-    return events
-
-
-# ============================================================
-# GENERIC SPORTS
-# ============================================================
-
-def get_generic_sport_events(
-    date,
-    sport,
-):
-
-    return get_events_for_day(
-        date,
-        sport=sport,
-    )
-
-
-# ============================================================
-# TV BROADCASTS
-# ============================================================
-
-def normalise_tv_item(
-    broadcast
-):
-
-    if not isinstance(
-        broadcast,
-        dict,
-    ):
-        return None
-
-    channel = (
-        broadcast.get("strChannel")
-        or broadcast.get("strEvent")
-        or broadcast.get("strName")
-        or broadcast.get("strTVStation")
-        or broadcast.get("strStation")
-    )
-
-    country = (
-        broadcast.get("strCountry")
-        or broadcast.get("strLocation")
-        or broadcast.get("strLanguage")
-        or ""
-    )
-
-    if not channel:
-        return None
-
-    return {
-        "channel": str(channel).strip(),
-        "country": str(country).strip(),
-    }
-
-
-def clean_tv_channels(
-    channels
-):
-
-    seen = set()
-
-    cleaned = []
-
-    for item in channels:
-
-        if not item:
-            continue
-
-        channel = (
-            item.get("channel")
-            or ""
-        ).strip()
-
-        country = (
-            item.get("country")
-            or ""
-        ).strip()
-
-        if not channel:
-            continue
-
-        key = (
-            channel.lower(),
-            country.lower(),
-        )
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-
-        cleaned.append(
-            {
-                "channel": channel,
-                "country": country,
-            }
-        )
-
-    return cleaned
-
-
-# ============================================================
-# DAILY TV FEED
-# ============================================================
-
-def get_tv_channels_for_date(
-    date
-):
-
-    data = sportsdb_get(
-        "eventstv.php",
-        {
-            "d": date,
-        },
-    )
-
-    if not data:
-        return {}
-
-    broadcasts = (
-        data.get("tvevents")
-        or data.get("events")
-        or []
-    )
-
-    tv_by_event = {}
-
-    for broadcast in broadcasts:
-
-        event_id = (
-            broadcast.get("idEvent")
-            or broadcast.get("id")
-        )
-
-        if not event_id:
-            continue
-
-        item = normalise_tv_item(
-            broadcast
-        )
-
-        if not item:
-            continue
-
-        tv_by_event.setdefault(
-            str(event_id),
-            [],
-        ).append(item)
-
-    for event_id in list(
-        tv_by_event.keys()
-    ):
-
-        tv_by_event[event_id] = (
-            clean_tv_channels(
-                tv_by_event[event_id]
-            )
-        )
-
-    logger.info(
-        "Daily TV feed found %s events.",
-        len(tv_by_event),
-    )
-
-    return tv_by_event
-
-
-# ============================================================
-# INDIVIDUAL EVENT TV
-# ============================================================
-
-def get_tv_for_event(
+def event_search_text(
     event
 ):
 
-    event_id = (
-        event.get("idEvent")
-        or event.get("id")
-    )
-
-    if not event_id:
-        return []
-
-    logger.info(
-        "Looking up TV for event %s",
-        event_id,
-    )
-
-    data = sportsdb_get(
-        "lookuptv.php",
-        {
-            "id": event_id,
-        },
-    )
-
-    if not data:
-        return []
-
-    broadcasts = (
-        data.get("tvevents")
-        or data.get("events")
-        or data.get("tv")
-        or []
-    )
-
-    results = []
-
-    for broadcast in broadcasts:
-
-        item = normalise_tv_item(
-            broadcast
-        )
-
-        if item:
-            results.append(
-                item
-            )
-
-    results = clean_tv_channels(
-        results
-    )
-
-    logger.info(
-        "TV lookup for %s returned %s channels.",
-        event_id,
-        len(results),
-    )
-
-    return results
-
-
-# ============================================================
-# EVENT TV
-# ============================================================
-
-def get_event_channels(
-    event,
-    tv_by_event=None,
-):
-
-    event_id = str(
-        event.get(
-            "idEvent",
-            "",
-        )
-    )
-
-    # --------------------------------------------------------
-    # FIRST: individual event lookup
-    # --------------------------------------------------------
-
-    channels = get_tv_for_event(
-        event
-    )
-
-    if channels:
-        return channels
-
-    # --------------------------------------------------------
-    # SECOND: daily TV feed
-    # --------------------------------------------------------
-
-    if tv_by_event:
-
-        channels = tv_by_event.get(
-            event_id,
-            [],
-        )
-
-        if channels:
-            return clean_tv_channels(
-                channels
-            )
-
-    # --------------------------------------------------------
-    # NOTHING FOUND
-    # --------------------------------------------------------
-
-    return []
-
-
-# ============================================================
-# UK TV DETECTION
-# ============================================================
-
-def is_uk_channel(
-    item
-):
-
-    country = (
-        item.get("country")
+    league = (
+        event.get("strLeague")
         or ""
-    ).lower().strip()
+    )
 
-    uk_countries = [
-        "united kingdom",
-        "uk",
-        "england",
-        "scotland",
-        "wales",
-        "northern ireland",
-        "great britain",
-        "britain",
-    ]
-
-    if country in uk_countries:
-        return True
-
-    channel = (
-        item.get("channel")
+    name = (
+        event.get("strEvent")
         or ""
-    ).lower()
-
-    uk_channel_words = [
-
-        "sky sports",
-        "sky sport",
-
-        "bbc",
-        "itv",
-
-        "tnt sports",
-        "premier sports",
-
-        "channel 4",
-        "channel five",
-        "channel 5",
-
-        "viaplay uk",
-
-        "bt sport",
-
-    ]
-
-    return any(
-        word in channel
-        for word in uk_channel_words
     )
-
-
-# ============================================================
-# TV DISPLAY
-# ============================================================
-
-def get_uk_channels(
-    event,
-    tv_by_event=None,
-):
-
-    channels = get_event_channels(
-        event,
-        tv_by_event,
-    )
-
-    return [
-        item
-        for item in channels
-        if is_uk_channel(item)
-    ]
-
-
-def get_worldwide_channels(
-    event,
-    tv_by_event=None,
-):
-
-    channels = get_event_channels(
-        event,
-        tv_by_event,
-    )
-
-    return [
-        item
-        for item in channels
-        if not is_uk_channel(item)
-    ]
-
-
-def format_uk_tv(
-    event,
-    tv_by_event=None,
-):
-
-    channels = get_uk_channels(
-        event,
-        tv_by_event,
-    )
-
-    if not channels:
-
-        return (
-            "📺 <b>UK TV:</b> TBC"
-        )
-
-    lines = [
-        "📺 <b>UK TV:</b>"
-    ]
-
-    for item in channels[:8]:
-
-        lines.append(
-            f"• {html.escape(item['channel'])}"
-        )
-
-    return "\n".join(
-        lines
-    )
-
-
-# ============================================================
-# EVENT NAME
-# ============================================================
-
-def get_event_title(
-    event
-):
 
     home = (
         event.get("strHomeTeam")
-        or event.get("strEvent")
-        or "Home"
+        or ""
     )
 
     away = (
@@ -873,32 +541,501 @@ def get_event_title(
         or ""
     )
 
-    if away:
+    return (
+        f"{league} "
+        f"{name} "
+        f"{home} "
+        f"{away}"
+    ).lower()
 
-        return (
-            f"{home} vs {away}"
+
+def filter_special_sport(
+    events,
+    sport_key,
+):
+
+    settings = SPORTS[
+        sport_key
+    ]
+
+    keywords = settings.get(
+        "keywords"
+    )
+
+    if not keywords:
+
+        return events
+
+    filtered = []
+
+    for event in events:
+
+        text = event_search_text(
+            event
         )
 
-    return str(home)
+        if any(
+            keyword in text
+            for keyword in keywords
+        ):
+
+            filtered.append(
+                event
+            )
+
+    return filtered
+
+
+async def get_sport_events(
+    date,
+    sport_key,
+):
+
+    settings = SPORTS[
+        sport_key
+    ]
+
+    sport_name = settings[
+        "sport"
+    ]
+
+    events = await get_events_day(
+        date,
+        sport=sport_name,
+    )
+
+    events = filter_special_sport(
+        events,
+        sport_key,
+    )
+
+    events.sort(
+        key=lambda event: (
+            event_datetime(event)
+            or datetime.max.replace(
+                tzinfo=UK_TIMEZONE
+            )
+        )
+    )
+
+    return events
+
+
+# ============================================================
+# TV CLEANING
+# ============================================================
+
+UK_COUNTRIES = {
+    "united kingdom",
+    "uk",
+    "england",
+    "scotland",
+    "wales",
+    "northern ireland",
+    "great britain",
+}
+
+
+UK_CHANNEL_WORDS = [
+    "sky sports",
+    "sky sport",
+    "bbc",
+    "itv",
+    "tnt sports",
+    "premier sports",
+    "channel 4",
+    "channel five",
+    "viaplay uk",
+]
+
+
+def get_channel_name(
+    item
+):
+
+    return (
+        item.get("strChannel")
+        or item.get("channel")
+        or item.get("strName")
+        or "Unknown channel"
+    ).strip()
+
+
+def get_channel_country(
+    item
+):
+
+    return (
+        item.get("strCountry")
+        or item.get("country")
+        or "International"
+    ).strip()
+
+
+def is_uk_channel(
+    item
+):
+
+    country = (
+        get_channel_country(item)
+        .lower()
+        .strip()
+    )
+
+    if country in UK_COUNTRIES:
+
+        return True
+
+    channel = (
+        get_channel_name(item)
+        .lower()
+    )
+
+    return any(
+        word in channel
+        for word in UK_CHANNEL_WORDS
+    )
+
+
+def clean_channels(
+    channels
+):
+
+    seen = set()
+    result = []
+
+    for item in channels:
+
+        name = get_channel_name(
+            item
+        )
+
+        country = get_channel_country(
+            item
+        )
+
+        key = (
+            name.lower(),
+            country.lower(),
+        )
+
+        if key in seen:
+
+            continue
+
+        seen.add(key)
+
+        result.append({
+            "strChannel": name,
+            "strCountry": country,
+        })
+
+    return result
+
+
+# ============================================================
+# TV MAP
+# ============================================================
+
+async def build_tv_map(
+    date
+):
+
+    listings = await get_tv_day(
+        date
+    )
+
+    result = {}
+
+    for listing in listings:
+
+        event_id = (
+            listing.get("idEvent")
+            or listing.get("id")
+        )
+
+        if not event_id:
+
+            continue
+
+        key = str(
+            event_id
+        )
+
+        result.setdefault(
+            key,
+            []
+        )
+
+        result[key].append(
+            listing
+        )
+
+    for key in result:
+
+        result[key] = clean_channels(
+            result[key]
+        )
+
+    return result
+
+
+async def get_event_channels(
+    event
+):
+
+    event_id = event.get(
+        "idEvent"
+    )
+
+    if not event_id:
+
+        return []
+
+    channels = await lookup_event_tv(
+        event_id
+    )
+
+    return clean_channels(
+        channels
+    )
+
+
+# ============================================================
+# MAIN MENU
+# ============================================================
+
+def main_menu():
+
+    keyboard = [
+
+        [
+            InlineKeyboardButton(
+                "⚽ Football",
+                callback_data="sport:football",
+            ),
+            InlineKeyboardButton(
+                "🏉 Rugby",
+                callback_data="sport:rugby",
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🏏 Cricket",
+                callback_data="sport:cricket",
+            ),
+            InlineKeyboardButton(
+                "🎾 Tennis",
+                callback_data="sport:tennis",
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🎯 Darts",
+                callback_data="sport:darts",
+            ),
+            InlineKeyboardButton(
+                "🏎️ Formula 1",
+                callback_data="sport:f1",
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🏌️ Golf",
+                callback_data="sport:golf",
+            ),
+            InlineKeyboardButton(
+                "🥊 Combat",
+                callback_data="sport:combat",
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📺 On TV Now",
+                callback_data="tvnow",
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "⏱️ Starting Soon",
+                callback_data="starting",
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🔔 My Alerts",
+                callback_data="alerts",
+            ),
+            InlineKeyboardButton(
+                "❤️ My Teams",
+                callback_data="teams",
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "💎 Premium",
+                callback_data="premium",
+            ),
+            InlineKeyboardButton(
+                "ℹ️ Help",
+                callback_data="help",
+            ),
+        ],
+
+    ]
+
+    return InlineKeyboardMarkup(
+        keyboard
+    )
+
+
+# ============================================================
+# BACK BUTTON
+# ============================================================
+
+def home_button():
+
+    return [
+        [
+            InlineKeyboardButton(
+                "⬅️ Back to Sports",
+                callback_data="home",
+            )
+        ]
+    ]
+
+
+# ============================================================
+# SPORT NAVIGATION
+# ============================================================
+
+def sport_navigation(
+    sport_key,
+    date,
+):
+
+    return [
+
+        [
+            InlineKeyboardButton(
+                "◀️ Previous Day",
+                callback_data=(
+                    f"day:{sport_key}:{date}:-1"
+                ),
+            ),
+
+            InlineKeyboardButton(
+                "Next Day ▶️",
+                callback_data=(
+                    f"day:{sport_key}:{date}:1"
+                ),
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "⬅️ Sports",
+                callback_data="home",
+            )
+        ],
+
+    ]
+
+
+# ============================================================
+# EVENT BUTTON
+# ============================================================
+
+def event_button(
+    event_id,
+    sport_key,
+    date,
+):
+
+    return InlineKeyboardButton(
+        "📺 Open Match",
+        callback_data=(
+            f"event:{event_id}:"
+            f"{sport_key}:{date}"
+        ),
+    )
+
+
+# ============================================================
+# HOME TEXT
+# ============================================================
+
+def home_text():
+
+    now = uk_now().strftime(
+        "%H:%M"
+    )
+
+    return (
+        "🔥 *SPORT PULSE ALERTS*\n\n"
+        f"🇬🇧 UK TIME: *{now}*\n\n"
+        "Choose a sport below.\n\n"
+        "📺 UK TV listings\n"
+        "🌍 Worldwide broadcasters\n"
+        "🔔 Match alerts\n"
+        "❤️ Follow teams\n"
+        "📅 Previous / Next Day"
+    )
+
+
+# ============================================================
+# SPORT HEADER
+# ============================================================
+
+def sport_header(
+    sport_key,
+    date,
+    count,
+):
+
+    name = SPORTS[
+        sport_key
+    ]["name"]
+
+    word = (
+        "fixture"
+        if count == 1
+        else "fixtures"
+    )
+
+    return (
+        f"📅 *{display_date(date)}*\n"
+        f"{name}\n\n"
+        f"📋 {count} {word}"
+    )
 
 
 # ============================================================
 # MATCH CARD
 # ============================================================
 
-def create_match_card(
+def make_match_card(
     event,
-    tv_by_event=None,
-    show_date=True,
+    channels,
 ):
 
-    date = (
+    date_value = (
         event.get("dateEvent")
-        or event.get("dateEventLocal")
-        or get_uk_date()
+        or "Date TBC"
     )
 
-    time = format_match_time(
+    formatted_date = (
+        display_date(date_value)
+    )
+
+    time_value = event_time(
         event
     )
 
@@ -922,85 +1059,85 @@ def create_match_card(
         or ""
     )
 
-    location = (
-        event.get("strCountry")
-        or ""
-    )
+    lines = [
 
-    lines = []
+        "━━━━━━━━━━━━━━━━━━━━",
 
-    lines.append(
-        "━━━━━━━━━━━━━━━━━━━━"
-    )
+        f"📅 *{formatted_date}*",
 
-    if show_date:
+        f"🕒 *{time_value} UK*",
 
-        lines.append(
-            f"📅 <b>{html.escape(format_display_date(date))}</b>"
-        )
+        "",
 
-    lines.append(
-        f"🕒 <b>{html.escape(time)} UK</b>"
-    )
+        f"⚽ *{home}*",
 
-    lines.append(
-        f"⚽ <b>{html.escape(home)}</b>"
-    )
+        "        *VS*",
 
-    lines.append(
-        "        <b>VS</b>"
-    )
+        f"⚽ *{away}*",
 
-    lines.append(
-        f"⚽ <b>{html.escape(away)}</b>"
-    )
+    ]
 
     if league:
 
         lines.append(
-            f"🏆 {html.escape(league)}"
+            f"\n🏆 {league}"
         )
 
     if venue:
 
-        venue_text = (
-            f"📍 {venue}"
-        )
-
-        if location:
-
-            venue_text += (
-                f" · {location}"
-            )
-
         lines.append(
-            html.escape(
-                venue_text
-            )
+            f"📍 {venue}"
         )
 
     lines.append("")
 
+    channels = clean_channels(
+        channels
+    )
+
+    uk_channels = [
+        channel
+        for channel in channels
+        if is_uk_channel(channel)
+    ]
+
+    international = [
+        channel
+        for channel in channels
+        if not is_uk_channel(channel)
+    ]
+
     lines.append(
-        format_uk_tv(
-            event,
-            tv_by_event,
+        "🇬🇧 *UK TV*"
+    )
+
+    if uk_channels:
+
+        for channel in uk_channels[:8]:
+
+            lines.append(
+                f"• {get_channel_name(channel)}"
+            )
+
+    else:
+
+        lines.append(
+            "• TBC / not currently listed"
         )
-    )
 
-    worldwide = get_worldwide_channels(
-        event,
-        tv_by_event,
-    )
-
-    if worldwide:
+    if international:
 
         lines.append("")
 
+        count = len(
+            international
+        )
+
         lines.append(
-            f"🌍 <b>{len(worldwide)} international "
+            f"🌍 *{count} international "
             f"broadcaster"
-            f"{'s' if len(worldwide) != 1 else ''} available</b>"
+            f"{'' if count == 1 else 's'} "
+            f"available*"
         )
 
     lines.append(
@@ -1013,557 +1150,59 @@ def create_match_card(
 
 
 # ============================================================
-# MAIN MENU
+# EVENT DETAIL BUTTONS
 # ============================================================
 
-def main_menu():
-
-    keyboard = [
-
-        [
-            InlineKeyboardButton(
-                "⚽ Football",
-                callback_data="football",
-            ),
-            InlineKeyboardButton(
-                "🏉 Rugby",
-                callback_data="rugby",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🏏 Cricket",
-                callback_data="cricket",
-            ),
-            InlineKeyboardButton(
-                "🎾 Tennis",
-                callback_data="tennis",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🎯 Darts",
-                callback_data="darts",
-            ),
-            InlineKeyboardButton(
-                "🏎️ Formula 1",
-                callback_data="f1",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🏌️ Golf",
-                callback_data="golf",
-            ),
-            InlineKeyboardButton(
-                "🥊 Combat",
-                callback_data="combat",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "📺 On TV Now",
-                callback_data="tv_now",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⏱️ Starting Soon",
-                callback_data="starting_soon",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🔎 Search",
-                callback_data="search",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🔔 My Alerts",
-                callback_data="my_alerts",
-            ),
-            InlineKeyboardButton(
-                "❤️ My Teams",
-                callback_data="my_teams",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "💎 Premium",
-                callback_data="premium",
-            ),
-            InlineKeyboardButton(
-                "ℹ️ Help",
-                callback_data="help",
-            ),
-        ],
-    ]
-
-    return InlineKeyboardMarkup(
-        keyboard
-    )
-
-
-# ============================================================
-# HOME TEXT
-# ============================================================
-
-def home_text():
-
-    return (
-        "🔥 <b>SPORT PULSE ALERTS</b>\n\n"
-        "Your sports TV guide in one place.\n\n"
-        "⚽ Football\n"
-        "🏉 Rugby\n"
-        "🏏 Cricket\n"
-        "🎾 Tennis\n"
-        "🎯 Darts\n"
-        "🏎️ Formula 1\n"
-        "🏌️ Golf\n"
-        "🥊 Combat\n\n"
-        "📺 Find what's on TV\n"
-        "🔔 Set alerts\n"
-        "❤️ Follow teams\n\n"
-        "👇 <b>Select a sport</b>"
-    )
-
-
-# ============================================================
-# SPORTS MENU
-# ============================================================
-
-def sports_menu():
-
-    keyboard = [
-
-        [
-            InlineKeyboardButton(
-                "⚽ Football",
-                callback_data="football",
-            ),
-            InlineKeyboardButton(
-                "🏉 Rugby",
-                callback_data="rugby",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🏏 Cricket",
-                callback_data="cricket",
-            ),
-            InlineKeyboardButton(
-                "🎾 Tennis",
-                callback_data="tennis",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🎯 Darts",
-                callback_data="darts",
-            ),
-            InlineKeyboardButton(
-                "🏎️ Formula 1",
-                callback_data="f1",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🏌️ Golf",
-                callback_data="golf",
-            ),
-            InlineKeyboardButton(
-                "🥊 Combat",
-                callback_data="combat",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ Main Menu",
-                callback_data="main_menu",
-            ),
-    ]
-
-    ]
-
-    return InlineKeyboardMarkup(
-        keyboard
-    )
-
-
-# ============================================================
-# FOOTBALL MENU
-# ============================================================
-
-def football_menu():
-
-    keyboard = [
-
-        [
-            InlineKeyboardButton(
-                "🏆 Premier League",
-                callback_data="football:premier",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🏆 Championship",
-                callback_data="football:championship",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⚽ All Football",
-                callback_data="football:all",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ Sports",
-                callback_data="back_sports",
-            ),
-        ],
-
-    ]
-
-    return InlineKeyboardMarkup(
-        keyboard
-    )
-
-
-# ============================================================
-# FIXTURE KEYBOARD
-# ============================================================
-
-def fixture_keyboard(
-    sport_key,
-    date,
+def event_buttons(
     event_id,
-):
-
-    return InlineKeyboardMarkup(
-
-        [
-
-            [
-                InlineKeyboardButton(
-                    "🌍 Worldwide TV",
-                    callback_data=(
-                        f"tv:{event_id}"
-                    ),
-                ),
-            ],
-
-            [
-                InlineKeyboardButton(
-                    "🔔 Alert Me",
-                    callback_data=(
-                        f"alert:{event_id}"
-                    ),
-                ),
-
-                InlineKeyboardButton(
-                    "❤️ Follow",
-                    callback_data=(
-                        f"follow:{event_id}"
-                    ),
-                ),
-            ],
-
-        ]
-
-    )
-
-
-# ============================================================
-# DATE NAVIGATION
-# ============================================================
-
-def date_navigation(
     sport_key,
     date,
 ):
 
-    previous_date = change_date(
-        date,
-        -1,
-    )
-
-    next_date = change_date(
-        date,
-        1,
-    )
-
-    return [
+    return InlineKeyboardMarkup([
 
         [
-
             InlineKeyboardButton(
-                "◀️ Previous Day",
+                "🌍 Worldwide TV",
                 callback_data=(
-                    f"day:{sport_key}:{previous_date}"
+                    f"world:{event_id}:"
+                    f"{sport_key}:{date}"
+                ),
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🔔 Alert Me",
+                callback_data=(
+                    f"alert:{event_id}:"
+                    f"{sport_key}:{date}"
                 ),
             ),
 
             InlineKeyboardButton(
-                "Next Day ▶️",
+                "❤️ Follow",
                 callback_data=(
-                    f"day:{sport_key}:{next_date}"
+                    f"follow:{event_id}:"
+                    f"{sport_key}:{date}"
                 ),
             ),
-
         ],
 
         [
-
             InlineKeyboardButton(
-                "⬅️ Sports",
-                callback_data="back_sports",
-            ),
-
-        ],
-
-    ]
-
-
-# ============================================================
-# FOOTBALL DATE NAVIGATION
-# ============================================================
-
-def football_date_navigation(
-    category,
-    date,
-):
-
-    previous_date = change_date(
-        date,
-        -1,
-    )
-
-    next_date = change_date(
-        date,
-        1,
-    )
-
-    return [
-
-        [
-
-            InlineKeyboardButton(
-                "◀️ Previous Day",
+                "⬅️ Back to Fixtures",
                 callback_data=(
-                    f"fday:{category}:{previous_date}"
+                    f"dayback:{sport_key}:{date}"
                 ),
-            ),
-
-            InlineKeyboardButton(
-                "Next Day ▶️",
-                callback_data=(
-                    f"fday:{category}:{next_date}"
-                ),
-            ),
-
+            )
         ],
 
-        [
-
-            InlineKeyboardButton(
-                "⬅️ Football",
-                callback_data="football",
-            ),
-
-        ],
-
-    ]
+    ])
 
 
 # ============================================================
-# DISPLAY FOOTBALL FIXTURES
-# ============================================================
-
-async def show_football(
-    query,
-    category,
-    date,
-):
-
-    if category == "premier":
-
-        events = get_premier_league(
-            date
-        )
-
-        title = (
-            "🏆 Premier League"
-        )
-
-    elif category == "championship":
-
-        events = get_championship(
-            date
-        )
-
-        title = (
-            "🏆 Championship"
-        )
-
-    else:
-
-        events = get_all_football(
-            date
-        )
-
-        title = (
-            "⚽ Football"
-        )
-
-    tv_by_event = (
-        get_tv_channels_for_date(
-            date
-        )
-    )
-
-    header = (
-        f"📅 <b>{html.escape(format_display_date(date))}</b>\n"
-        f"🏆 <b>{html.escape(title)}</b>\n\n"
-    )
-
-    if not events:
-
-        text = (
-            header
-            + "📭 <b>No fixtures found for this date.</b>\n\n"
-            + "Try the next day."
-        )
-
-        keyboard = (
-            football_date_navigation(
-                category,
-                date,
-            )
-        )
-
-        await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
-            parse_mode="HTML",
-        )
-
-        return
-
-    # Sort by time
-    events.sort(
-        key=lambda event: (
-            event.get("strTime")
-            or "99:99"
-        )
-    )
-
-    # Store current view
-    query.message.chat_id
-
-    full_text = header
-
-    buttons = []
-
-    for index, event in enumerate(
-        events[:20],
-        start=1,
-    ):
-
-        full_text += (
-            f"<b>{index}.</b> "
-            f"{html.escape(get_event_title(event))}\n"
-        )
-
-        full_text += (
-            f"🕒 {html.escape(format_match_time(event))} UK\n"
-        )
-
-        uk_channels = get_uk_channels(
-            event,
-            tv_by_event,
-        )
-
-        if uk_channels:
-
-            names = ", ".join(
-                item["channel"]
-                for item in uk_channels[:4]
-            )
-
-            full_text += (
-                f"📺 <b>UK TV:</b> "
-                f"{html.escape(names)}\n"
-            )
-
-        else:
-
-            full_text += (
-                "📺 <b>UK TV:</b> TBC\n"
-            )
-
-        full_text += "\n"
-
-        event_id = event.get(
-            "idEvent"
-        )
-
-        if event_id:
-
-            buttons.append(
-
-                [
-
-                    InlineKeyboardButton(
-                        (
-                            f"📺 "
-                            f"{get_event_title(event)[:35]}"
-                        ),
-                        callback_data=(
-                            f"match:{event_id}"
-                        ),
-                    ),
-
-                ]
-
-            )
-
-    buttons.extend(
-        football_date_navigation(
-            category,
-            date,
-        )
-    )
-
-    await query.edit_message_text(
-        full_text,
-        reply_markup=InlineKeyboardMarkup(
-            buttons
-        ),
-        parse_mode="HTML",
-    )
-
-
-# ============================================================
-# DISPLAY GENERIC SPORT
+# SHOW SPORT
 # ============================================================
 
 async def show_sport(
@@ -1572,66 +1211,54 @@ async def show_sport(
     date,
 ):
 
-    config = SPORTS.get(
-        sport_key
-    )
-
-    if not config:
-
-        await query.edit_message_text(
-            "❌ Sport not found.",
-            reply_markup=sports_menu(),
-        )
-
-        return
-
-    events = get_generic_sport_events(
+    logger.info(
+        "Loading %s for %s",
+        sport_key,
         date,
-        config["sport"],
     )
 
-    tv_by_event = (
-        get_tv_channels_for_date(
-            date
-        )
-    )
-
-    header = (
-        f"📅 <b>{html.escape(format_display_date(date))}</b>\n"
-        f"{html.escape(config['name'])}\n\n"
+    events = await get_sport_events(
+        date,
+        sport_key,
     )
 
     if not events:
 
         text = (
-            header
-            + "📭 <b>No fixtures found for this date.</b>\n\n"
-            + "Try the next day."
+            f"📅 *{display_date(date)}*\n"
+            f"{SPORTS[sport_key]['name']}\n\n"
+            "⚠️ *No fixtures found for this date.*\n\n"
+            "Use Previous Day or Next Day "
+            "to check another date."
         )
 
-        keyboard = date_navigation(
-            sport_key,
-            date,
+        keyboard = InlineKeyboardMarkup(
+            sport_navigation(
+                sport_key,
+                date,
+            )
         )
 
         await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
-            parse_mode="HTML",
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
         )
 
         return
 
-    events.sort(
-        key=lambda event: (
-            event.get("strTime")
-            or "99:99"
-        )
+    tv_map = await build_tv_map(
+        date
     )
 
-    full_text = header
+    lines = [
+        sport_header(
+            sport_key,
+            date,
+            len(events),
+        ),
+        "",
+    ]
 
     buttons = []
 
@@ -1640,194 +1267,143 @@ async def show_sport(
         start=1,
     ):
 
-        title = get_event_title(
-            event
-        )
-
-        full_text += (
-            f"<b>{index}.</b> "
-            f"{html.escape(title)}\n"
-        )
-
-        full_text += (
-            f"🕒 {html.escape(format_match_time(event))} UK\n"
-        )
-
-        uk_channels = get_uk_channels(
-            event,
-            tv_by_event,
-        )
-
-        if uk_channels:
-
-            names = ", ".join(
-                item["channel"]
-                for item in uk_channels[:4]
-            )
-
-            full_text += (
-                f"📺 <b>UK TV:</b> "
-                f"{html.escape(names)}\n"
-            )
-
-        else:
-
-            full_text += (
-                "📺 <b>UK TV:</b> TBC\n"
-            )
-
-        full_text += "\n"
-
         event_id = event.get(
             "idEvent"
         )
 
-        if event_id:
+        home = (
+            event.get(
+                "strHomeTeam"
+            )
+            or "Home"
+        )
 
-            buttons.append(
+        away = (
+            event.get(
+                "strAwayTeam"
+            )
+            or "Away"
+        )
 
-                [
+        lines.append(
+            f"*{index}. "
+            f"{event_time(event)}* — "
+            f"{home} vs {away}"
+        )
 
-                    InlineKeyboardButton(
-                        (
-                            f"📺 "
-                            f"{title[:35]}"
-                        ),
-                        callback_data=(
-                            f"match:{event_id}"
-                        ),
-                    ),
+        channels = tv_map.get(
+            str(event_id),
+            [],
+        )
 
-                ]
+        uk = [
+            channel
+            for channel in channels
+            if is_uk_channel(channel)
+        ]
 
+        if uk:
+
+            names = [
+                get_channel_name(
+                    channel
+                )
+                for channel in uk[:3]
+            ]
+
+            lines.append(
+                "📺 UK TV: "
+                + ", ".join(names)
             )
 
+        else:
+
+            lines.append(
+                "📺 UK TV: TBC"
+            )
+
+        lines.append("")
+
+        if event_id:
+
+            buttons.append([
+                InlineKeyboardButton(
+                    (
+                        f"📺 "
+                        f"{event_time(event)} "
+                        f"{home} v {away}"
+                    )[:60],
+                    callback_data=(
+                        f"event:{event_id}:"
+                        f"{sport_key}:{date}"
+                    ),
+                )
+            ])
+
+    text = "\n".join(
+        lines
+    )
+
+    if len(text) > 3900:
+
+        short_lines = [
+            sport_header(
+                sport_key,
+                date,
+                len(events),
+            ),
+            "",
+        ]
+
+        for index, event in enumerate(
+            events[:20],
+            start=1,
+        ):
+
+            short_lines.append(
+                f"*{index}. "
+                f"{event_time(event)}* — "
+                f"{event.get('strHomeTeam', 'Home')} "
+                f"vs "
+                f"{event.get('strAwayTeam', 'Away')}"
+            )
+
+        text = "\n".join(
+            short_lines
+        )
+
     buttons.extend(
-        date_navigation(
+        sport_navigation(
             sport_key,
             date,
         )
     )
 
     await query.edit_message_text(
-        full_text,
+        text=text,
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
             buttons
         ),
-        parse_mode="HTML",
     )
 
 
 # ============================================================
-# SHOW INDIVIDUAL MATCH
+# SHOW EVENT
 # ============================================================
 
-async def show_match(
+async def show_event(
     query,
     event_id,
+    sport_key,
+    date,
 ):
 
-    logger.info(
-        "Opening event %s",
-        event_id,
+    event = await lookup_event(
+        event_id
     )
 
-    data = sportsdb_get(
-        "lookupevent.php",
-        {
-            "id": event_id,
-        },
-    )
-
-    if not data:
-
-        await query.answer(
-            "Could not load this fixture.",
-            show_alert=True,
-        )
-
-        return
-
-    events = (
-        data.get("events")
-        or []
-    )
-
-    if not events:
-
-        await query.answer(
-            "Fixture not found.",
-            show_alert=True,
-        )
-
-        return
-
-    event = events[0]
-
-    tv_by_event = {}
-
-    channels = get_event_channels(
-        event,
-        tv_by_event,
-    )
-
-    tv_by_event[
-        str(event_id)
-    ] = channels
-
-    text = create_match_card(
-        event,
-        tv_by_event,
-        show_date=True,
-    )
-
-    keyboard = fixture_keyboard(
-        "match",
-        event.get(
-            "dateEvent"
-            or get_uk_date()
-        ),
-        event_id,
-    )
-
-    await query.edit_message_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-
-
-# ============================================================
-# WORLDWIDE TV
-# ============================================================
-
-async def show_worldwide_tv(
-    query,
-    event_id,
-):
-
-    data = sportsdb_get(
-        "lookupevent.php",
-        {
-            "id": event_id,
-        },
-    )
-
-    if not data:
-
-        await query.answer(
-            "Could not load event.",
-            show_alert=True,
-        )
-
-        return
-
-    events = (
-        data.get("events")
-        or []
-    )
-
-    if not events:
+    if not event:
 
         await query.answer(
             "Event not found.",
@@ -1836,63 +1412,104 @@ async def show_worldwide_tv(
 
         return
 
-    event = events[0]
+    channels = await get_event_channels(
+        event
+    )
 
-    channels = get_event_channels(
+    text = make_match_card(
         event,
-        {},
+        channels,
+    )
+
+    await query.edit_message_text(
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=event_buttons(
+            event_id,
+            sport_key,
+            date,
+        ),
+    )
+
+
+# ============================================================
+# WORLDWIDE TV
+# ============================================================
+
+async def show_worldwide(
+    query,
+    event_id,
+    sport_key,
+    date,
+):
+
+    event = await lookup_event(
+        event_id
+    )
+
+    if not event:
+
+        await query.answer(
+            "Event not found.",
+            show_alert=True,
+        )
+
+        return
+
+    channels = await get_event_channels(
+        event
     )
 
     worldwide = [
-        item
-        for item in channels
-        if not is_uk_channel(item)
+        channel
+        for channel in channels
+        if not is_uk_channel(channel)
     ]
 
     if not worldwide:
 
         text = (
-            "🌍 <b>WORLDWIDE TV</b>\n\n"
-            "No international listings are "
-            "currently available for this event."
+            "🌍 *WORLDWIDE TV*\n\n"
+            "No international TV listings "
+            "are currently available."
         )
 
     else:
 
         grouped = {}
 
-        for item in worldwide:
+        for channel in worldwide:
 
-            country = (
-                item.get("country")
-                or "International"
+            country = get_channel_country(
+                channel
             )
 
             grouped.setdefault(
                 country,
                 [],
-            ).append(
-                item["channel"]
+            )
+
+            grouped[country].append(
+                get_channel_name(
+                    channel
+                )
             )
 
         lines = [
-            "🌍 <b>WORLDWIDE TV</b>",
-            "",
-            f"📺 <b>{len(worldwide)} "
-            f"international broadcasters</b>",
+            "🌍 *WORLDWIDE TV*",
             "",
         ]
 
-        for country, channel_list in grouped.items():
+        for country, names in grouped.items():
 
             lines.append(
-                f"🌎 <b>{html.escape(country)}</b>"
+                f"🌎 *{country}*"
             )
 
-            for channel in channel_list[:8]:
+            for name in names[:10]:
 
                 lines.append(
-                    f"• {html.escape(channel)}"
+                    f"• {name}"
                 )
 
             lines.append("")
@@ -1901,27 +1518,33 @@ async def show_worldwide_tv(
             lines
         ).strip()
 
-    keyboard = InlineKeyboardMarkup(
+    keyboard = InlineKeyboardMarkup([
 
         [
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ Back to Fixture",
-                    callback_data=(
-                        f"match:{event_id}"
-                    ),
+            InlineKeyboardButton(
+                "⬅️ Back to Match",
+                callback_data=(
+                    f"event:{event_id}:"
+                    f"{sport_key}:{date}"
                 ),
-            ],
+            )
+        ],
 
-        ]
+        [
+            InlineKeyboardButton(
+                "⬅️ Back to Fixtures",
+                callback_data=(
+                    f"dayback:{sport_key}:{date}"
+                ),
+            )
+        ],
 
-    )
+    ])
 
     await query.edit_message_text(
-        text,
+        text=text,
+        parse_mode="Markdown",
         reply_markup=keyboard,
-        parse_mode="HTML",
     )
 
 
@@ -1929,263 +1552,192 @@ async def show_worldwide_tv(
 # ALERT
 # ============================================================
 
-async def add_alert(
+async def save_alert(
     query,
     user_id,
     event_id,
 ):
 
-    user = get_user_data(
-        user_id
+    event = await lookup_event(
+        event_id
     )
 
-    alerts = user.setdefault(
-        "alerts",
-        []
+    if not event:
+
+        await query.answer(
+            "Event not found.",
+            show_alert=True,
+        )
+
+        return
+
+    data = get_user(
+        user_id
     )
 
     event_id = str(
         event_id
     )
 
-    if event_id not in alerts:
+    if event_id not in data["alerts"]:
 
-        alerts.append(
+        data["alerts"].append(
             event_id
         )
 
-        save_data(
-            DATA
-        )
+        save_data()
 
-        message = (
-            "🔔 <b>Alert added!</b>\n\n"
-            "I'll remember this fixture "
-            "for your alerts."
+        await query.answer(
+            "🔔 Alert saved!",
+            show_alert=True,
         )
 
     else:
 
-        alerts.remove(
-            event_id
+        await query.answer(
+            "🔔 Alert already saved.",
+            show_alert=True,
         )
-
-        save_data(
-            DATA
-        )
-
-        message = (
-            "🔕 <b>Alert removed.</b>"
-        )
-
-    await query.answer(
-        message.replace(
-            "<b>",
-            ""
-        ).replace(
-            "</b>",
-            ""
-        ),
-        show_alert=True,
-    )
 
 
 # ============================================================
 # FOLLOW TEAM
 # ============================================================
 
-async def follow_event(
+async def follow_team(
     query,
     user_id,
     event_id,
 ):
 
-    data = sportsdb_get(
-        "lookupevent.php",
-        {
-            "id": event_id,
-        },
+    event = await lookup_event(
+        event_id
     )
 
-    if not data:
+    if not event:
 
         await query.answer(
-            "Could not load team.",
+            "Event not found.",
             show_alert=True,
         )
 
         return
 
-    events = (
-        data.get("events")
-        or []
-    )
-
-    if not events:
-
-        await query.answer(
-            "Could not load team.",
-            show_alert=True,
-        )
-
-        return
-
-    event = events[0]
-
-    home = (
+    team = (
         event.get("strHomeTeam")
-        or ""
+        or event.get("strAwayTeam")
     )
 
-    away = (
-        event.get("strAwayTeam")
-        or ""
-    )
+    if not team:
 
-    user = get_user_data(
+        await query.answer(
+            "Team unavailable.",
+            show_alert=True,
+        )
+
+        return
+
+    data = get_user(
         user_id
     )
 
-    teams = user.setdefault(
-        "teams",
-        []
-    )
+    if team not in data["teams"]:
 
-    added = []
+        data["teams"].append(
+            team
+        )
 
-    for team in [
-        home,
-        away,
-    ]:
+        save_data()
 
-        if not team:
-            continue
-
-        if team not in teams:
-
-            teams.append(
-                team
-            )
-
-            added.append(
-                team
-            )
-
-    save_data(
-        DATA
-    )
-
-    if added:
-
-        message = (
-            "❤️ Following: "
-            + ", ".join(
-                added
-            )
+        await query.answer(
+            f"❤️ Following {team}",
+            show_alert=True,
         )
 
     else:
 
-        message = (
-            "❤️ You're already "
-            "following these teams."
+        await query.answer(
+            f"❤️ Already following {team}",
+            show_alert=True,
         )
-
-    await query.answer(
-        message,
-        show_alert=True,
-    )
 
 
 # ============================================================
 # MY ALERTS
 # ============================================================
 
-async def show_my_alerts(
+async def show_alerts(
     query,
     user_id,
 ):
 
-    user = get_user_data(
+    data = get_user(
         user_id
     )
 
-    alerts = user.get(
-        "alerts",
-        []
-    )
-
-    if not alerts:
+    if not data["alerts"]:
 
         text = (
-            "🔔 <b>MY ALERTS</b>\n\n"
-            "You don't have any alerts yet.\n\n"
+            "🔔 *MY ALERTS*\n\n"
+            "You have no saved alerts.\n\n"
             "Open a fixture and press "
-            "🔔 Alert Me."
+            "*🔔 Alert Me*."
         )
 
-    else:
-
-        lines = [
-            "🔔 <b>MY ALERTS</b>",
-            "",
-            f"You have <b>{len(alerts)}</b> "
-            "saved alert(s).",
-            "",
-        ]
-
-        for event_id in alerts[:20]:
-
-            data = sportsdb_get(
-                "lookupevent.php",
-                {
-                    "id": event_id,
-                },
-            )
-
-            events = (
-                data.get("events", [])
-                if data
-                else []
-            )
-
-            if events:
-
-                event = events[0]
-
-                lines.append(
-                    f"• {html.escape(get_event_title(event))}"
-                )
-
-            else:
-
-                lines.append(
-                    f"• Event {event_id}"
-                )
-
-        text = "\n".join(
-            lines
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                home_button()
+            ),
         )
 
-    keyboard = InlineKeyboardMarkup(
+        return
 
-        [
+    lines = [
+        "🔔 *MY ALERTS*",
+        "",
+    ]
 
-            [
-                InlineKeyboardButton(
-                    "⬅️ Main Menu",
-                    callback_data="main_menu",
-                ),
-            ],
+    valid_alerts = []
 
-        ]
+    for event_id in data["alerts"][:30]:
 
-    )
+        event = await lookup_event(
+            event_id
+        )
+
+        if not event:
+
+            continue
+
+        valid_alerts.append(
+            event_id
+        )
+
+        lines.append(
+            f"🕒 *{event_time(event)}* — "
+            f"{event.get('strHomeTeam', 'Home')} "
+            f"vs "
+            f"{event.get('strAwayTeam', 'Away')}"
+        )
+
+    data["alerts"] = valid_alerts
+
+    save_data()
+
+    if len(lines) == 2:
+
+        lines.append(
+            "No active events found."
+        )
 
     await query.edit_message_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML",
+        text="\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            home_button()
+        ),
     )
 
 
@@ -2193,65 +1745,211 @@ async def show_my_alerts(
 # MY TEAMS
 # ============================================================
 
-async def show_my_teams(
+async def show_teams(
     query,
     user_id,
 ):
 
-    user = get_user_data(
+    data = get_user(
         user_id
     )
 
-    teams = user.get(
-        "teams",
-        []
-    )
-
-    if not teams:
+    if not data["teams"]:
 
         text = (
-            "❤️ <b>MY TEAMS</b>\n\n"
-            "You're not following any teams yet.\n\n"
+            "❤️ *MY TEAMS*\n\n"
+            "You are not following any teams.\n\n"
             "Open a fixture and press "
-            "❤️ Follow."
+            "*❤️ Follow*."
         )
 
     else:
 
         lines = [
-            "❤️ <b>MY TEAMS</b>",
+            "❤️ *MY TEAMS*",
             "",
         ]
 
-        for team in teams:
+        for team in data["teams"]:
 
             lines.append(
-                f"• {html.escape(team)}"
+                f"• {team}"
             )
 
         text = "\n".join(
             lines
         )
 
-    keyboard = InlineKeyboardMarkup(
-
-        [
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ Main Menu",
-                    callback_data="main_menu",
-                ),
-            ],
-
-        ]
-
+    await query.edit_message_text(
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            home_button()
+        ),
     )
 
+
+# ============================================================
+# ON TV NOW
+# ============================================================
+
+async def show_tv_now(
+    query,
+):
+
+    now = uk_now()
+
+    date = today_string()
+
+    listings = await get_tv_day(
+        date,
+        country="United Kingdom",
+    )
+
+    events = {}
+
+    for listing in listings:
+
+        if not is_uk_channel(
+            listing
+        ):
+
+            continue
+
+        event_id = (
+            listing.get("idEvent")
+        )
+
+        if not event_id:
+
+            continue
+
+        dt = event_datetime(
+            listing
+        )
+
+        if not dt:
+
+            continue
+
+        if (
+            now - timedelta(hours=2)
+            <= dt
+            <= now + timedelta(hours=2)
+        ):
+
+            events.setdefault(
+                str(event_id),
+                listing,
+            )
+
+    rows = list(
+        events.values()
+    )
+
+    rows.sort(
+        key=lambda item: (
+            event_datetime(item)
+            or datetime.max.replace(
+                tzinfo=UK_TIMEZONE
+            )
+        )
+    )
+
+    if not rows:
+
+        text = (
+            "📺 *ON TV NOW*\n\n"
+            "Nothing currently listed "
+            "on UK TV in the surrounding "
+            "2-hour window."
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            home_button()
+        )
+
+    else:
+
+        lines = [
+            "📺 *ON TV NOW*",
+            "",
+        ]
+
+        buttons = []
+
+        for item in rows[:20]:
+
+            event_id = item.get(
+                "idEvent"
+            )
+
+            name = (
+                item.get("strEvent")
+                or "Sports event"
+            )
+
+            channel = (
+                item.get("strChannel")
+                or "TV TBC"
+            )
+
+            dt = event_datetime(
+                item
+            )
+
+            time_text = (
+                dt.strftime("%H:%M")
+                if dt
+                else "TBC"
+            )
+
+            lines.append(
+                f"🕒 *{time_text}* — {name}"
+            )
+
+            lines.append(
+                f"📺 {channel}"
+            )
+
+            lines.append("")
+
+            if event_id:
+
+                buttons.append([
+
+                    InlineKeyboardButton(
+                        (
+                            f"📺 {time_text} "
+                            f"{name}"
+                        )[:60],
+                        callback_data=(
+                            f"event:{event_id}:"
+                            f"football:{date}"
+                        ),
+                    )
+
+                ])
+
+        buttons.append([
+            InlineKeyboardButton(
+                "⬅️ Sports",
+                callback_data="home",
+            )
+        ])
+
+        text = "\n".join(
+            lines
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            buttons
+        )
+
     await query.edit_message_text(
-        text,
+        text=text,
+        parse_mode="Markdown",
         reply_markup=keyboard,
-        parse_mode="HTML",
     )
 
 
@@ -2259,243 +1957,176 @@ async def show_my_teams(
 # STARTING SOON
 # ============================================================
 
-async def show_starting_soon(
+async def show_starting(
     query,
 ):
 
-    today = get_uk_date()
-
-    events = get_all_football(
-        today
-    )
-
     now = uk_now()
+
+    events = {}
+
+    for day_offset in range(
+        0,
+        2,
+    ):
+
+        day = (
+            now
+            + timedelta(
+                days=day_offset
+            )
+        ).strftime(
+            "%Y-%m-%d"
+        )
+
+        for sport_key in SPORTS:
+
+            found = await get_sport_events(
+                day,
+                sport_key,
+            )
+
+            for event in found:
+
+                event_id = event.get(
+                    "idEvent"
+                )
+
+                if event_id:
+
+                    events[
+                        str(event_id)
+                    ] = event
 
     upcoming = []
 
-    for event in events:
+    for event in events.values():
 
-        date_string = (
-            event.get("dateEvent")
-            or today
+        dt = event_datetime(
+            event
         )
 
-        time_string = (
-            event.get("strTime")
-            or "00:00:00"
-        )
-
-        try:
-
-            event_time = datetime.strptime(
-                f"{date_string} {time_string[:8]}",
-                "%Y-%m-%d %H:%M:%S",
-            ).replace(
-                tzinfo=UK_TIMEZONE
-            )
-
-        except Exception:
+        if not dt:
 
             continue
 
-        difference = (
-            event_time - now
-        )
-
-        if timedelta(
-            minutes=0
-        ) <= difference <= timedelta(
-            hours=3
+        if (
+            now
+            <= dt
+            <= now + timedelta(
+                hours=6
+            )
         ):
 
             upcoming.append(
                 event
             )
 
-    tv_by_event = (
-        get_tv_channels_for_date(
-            today
+    upcoming.sort(
+        key=lambda event: (
+            event_datetime(event)
+            or datetime.max.replace(
+                tzinfo=UK_TIMEZONE
+            )
         )
     )
 
     if not upcoming:
 
         text = (
-            "⏱️ <b>STARTING SOON</b>\n\n"
-            "No football fixtures are "
-            "starting within the next 3 hours."
+            "⏱️ *STARTING SOON*\n\n"
+            "No events found in the "
+            "next 6 hours."
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            home_button()
         )
 
     else:
 
         lines = [
-            "⏱️ <b>STARTING SOON</b>",
+            "⏱️ *STARTING SOON*",
             "",
         ]
 
-        for event in upcoming[:10]:
+        buttons = []
 
-            title = get_event_title(
-                event
+        for event in upcoming[:20]:
+
+            event_id = event.get(
+                "idEvent"
+            )
+
+            home = (
+                event.get(
+                    "strHomeTeam"
+                )
+                or "Home"
+            )
+
+            away = (
+                event.get(
+                    "strAwayTeam"
+                )
+                or "Away"
+            )
+
+            sport = (
+                event.get(
+                    "strSport"
+                )
+                or "Sport"
             )
 
             lines.append(
-                f"⚽ <b>{html.escape(title)}</b>"
+                f"🕒 *{event_time(event)}* — "
+                f"{home} vs {away}"
             )
 
             lines.append(
-                f"🕒 {html.escape(format_match_time(event))} UK"
+                f"   {sport}"
             )
 
-            uk_channels = get_uk_channels(
-                event,
-                tv_by_event,
-            )
+            lines.append("")
 
-            if uk_channels:
+            if event_id:
 
-                lines.append(
-                    "📺 "
-                    + html.escape(
-                        uk_channels[0]["channel"]
+                buttons.append([
+
+                    InlineKeyboardButton(
+                        (
+                            f"📺 "
+                            f"{event_time(event)} "
+                            f"{home} v {away}"
+                        )[:60],
+                        callback_data=(
+                            f"event:{event_id}:"
+                            f"football:{today_string()}"
+                        ),
                     )
-                )
 
-            else:
+                ])
 
-                lines.append(
-                    "📺 UK TV: TBC"
-                )
-
-            lines.append("")
+        buttons.append([
+            InlineKeyboardButton(
+                "⬅️ Sports",
+                callback_data="home",
+            )
+        ])
 
         text = "\n".join(
             lines
         )
 
-    keyboard = InlineKeyboardMarkup(
-
-        [
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ Main Menu",
-                    callback_data="main_menu",
-                ),
-            ],
-
-        ]
-
-    )
+        keyboard = InlineKeyboardMarkup(
+            buttons
+        )
 
     await query.edit_message_text(
-        text,
+        text=text,
+        parse_mode="Markdown",
         reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-
-
-# ============================================================
-# TV NOW
-# ============================================================
-
-async def show_tv_now(
-    query,
-):
-
-    date = get_uk_date()
-
-    events = get_all_football(
-        date
-    )
-
-    tv_by_event = (
-        get_tv_channels_for_date(
-            date
-        )
-    )
-
-    tv_events = []
-
-    for event in events:
-
-        channels = get_uk_channels(
-            event,
-            tv_by_event,
-        )
-
-        if channels:
-
-            tv_events.append(
-                (
-                    event,
-                    channels,
-                )
-            )
-
-    if not tv_events:
-
-        text = (
-            "📺 <b>ON TV NOW</b>\n\n"
-            "No UK TV football listings "
-            "are currently available."
-        )
-
-    else:
-
-        lines = [
-            "📺 <b>ON TV TODAY</b>",
-            "",
-        ]
-
-        for event, channels in tv_events[:15]:
-
-            title = get_event_title(
-                event
-            )
-
-            channel_names = ", ".join(
-                item["channel"]
-                for item in channels[:3]
-            )
-
-            lines.append(
-                f"⚽ <b>{html.escape(title)}</b>"
-            )
-
-            lines.append(
-                f"🕒 {html.escape(format_match_time(event))} UK"
-            )
-
-            lines.append(
-                f"📺 {html.escape(channel_names)}"
-            )
-
-            lines.append("")
-
-        text = "\n".join(
-            lines
-        )
-
-    keyboard = InlineKeyboardMarkup(
-
-        [
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ Main Menu",
-                    callback_data="main_menu",
-                ),
-            ],
-
-        ]
-
-    )
-
-    await query.edit_message_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML",
     )
 
 
@@ -2508,38 +2139,35 @@ async def show_help(
 ):
 
     text = (
-        "ℹ️ <b>SPORT PULSE ALERTS</b>\n\n"
-        "⚽ Choose a sport to see fixtures.\n\n"
-        "📺 UK TV shows British broadcasters "
-        "when available.\n\n"
+        "ℹ️ *SPORT PULSE ALERTS*\n\n"
+
+        "⚽ *Football*\n"
+        "🏉 *Rugby*\n"
+        "🏏 *Cricket*\n"
+        "🎾 *Tennis*\n"
+        "🎯 *Darts*\n"
+        "🏎️ *Formula 1*\n"
+        "🏌️ *Golf*\n"
+        "🥊 *Combat*\n\n"
+
+        "📅 Use Previous Day / Next Day "
+        "to browse dates.\n\n"
+
+        "📺 Open a fixture to see TV.\n"
         "🌍 Worldwide TV shows international "
-        "broadcasters.\n\n"
-        "🔔 Alert Me saves a fixture to your "
-        "alerts.\n\n"
-        "❤️ Follow saves the teams for you.\n\n"
-        "📅 Previous/Next Day lets you browse "
-        "the fixture calendar."
-    )
+        "broadcasters.\n"
+        "🔔 Alert Me saves an event.\n"
+        "❤️ Follow saves a team.\n\n"
 
-    keyboard = InlineKeyboardMarkup(
-
-        [
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ Main Menu",
-                    callback_data="main_menu",
-                ),
-            ],
-
-        ]
-
+        "🇬🇧 All times are UK time."
     )
 
     await query.edit_message_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML",
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            home_button()
+        ),
     )
 
 
@@ -2552,82 +2180,26 @@ async def show_premium(
 ):
 
     text = (
-        "💎 <b>PREMIUM</b>\n\n"
-        "Premium features can be added here.\n\n"
-        "🚀 More alerts\n"
-        "📺 Advanced TV filtering\n"
-        "❤️ Unlimited followed teams\n"
-        "🔔 Advanced notifications\n"
-        "🌍 More international coverage"
-    )
-
-    keyboard = InlineKeyboardMarkup(
-
-        [
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ Main Menu",
-                    callback_data="main_menu",
-                ),
-            ],
-
-        ]
-
+        "💎 *PREMIUM*\n\n"
+        "Premium features are coming soon.\n\n"
+        "The main fixture and TV system "
+        "is available now."
     )
 
     await query.edit_message_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML",
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            home_button()
+        ),
     )
 
 
 # ============================================================
-# SEARCH
+# CALLBACK ROUTER
 # ============================================================
 
-async def show_search(
-    query,
-):
-
-    text = (
-        "🔎 <b>SEARCH</b>\n\n"
-        "Send me a team name using the "
-        "message box.\n\n"
-        "Example:\n"
-        "<code>Arsenal</code>\n\n"
-        "Search functionality can then be "
-        "expanded to fixtures and TV listings."
-    )
-
-    keyboard = InlineKeyboardMarkup(
-
-        [
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ Main Menu",
-                    callback_data="main_menu",
-                ),
-            ],
-
-        ]
-
-    )
-
-    await query.edit_message_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-
-
-# ============================================================
-# MAIN CALLBACK HANDLER
-# ============================================================
-
-async def button_handler(
+async def callback_router(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
@@ -2640,310 +2212,352 @@ async def button_handler(
 
     user_id = query.from_user.id
 
-    logger.info(
-        "Callback: %s",
-        data,
-    )
+    try:
 
-    # --------------------------------------------------------
-    # MAIN MENU
-    # --------------------------------------------------------
+        # ----------------------------------------------------
+        # HOME
+        # ----------------------------------------------------
 
-    if data == "main_menu":
+        if data == "home":
 
-        await query.edit_message_text(
-            home_text(),
-            reply_markup=main_menu(),
-            parse_mode="HTML",
-        )
+            await query.edit_message_text(
+                text=home_text(),
+                parse_mode="Markdown",
+                reply_markup=main_menu(),
+            )
 
-        return
-
-    # --------------------------------------------------------
-    # SPORTS MENU
-    # --------------------------------------------------------
-
-    if data == "back_sports":
-
-        await query.edit_message_text(
-            "🏆 <b>SPORTS</b>\n\n"
-            "Choose a sport:",
-            reply_markup=sports_menu(),
-            parse_mode="HTML",
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # FOOTBALL MENU
-    # --------------------------------------------------------
-
-    if data == "football":
-
-        await query.edit_message_text(
-            "⚽ <b>FOOTBALL</b>\n\n"
-            "Choose a competition:",
-            reply_markup=football_menu(),
-            parse_mode="HTML",
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # FOOTBALL CATEGORIES
-    # --------------------------------------------------------
-
-    if data.startswith(
-        "football:"
-    ):
-
-        category = data.split(
-            ":",
-            1,
-        )[1]
-
-        await show_football(
-            query,
-            category,
-            get_uk_date(),
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # FOOTBALL DATE
-    # --------------------------------------------------------
-
-    if data.startswith(
-        "fday:"
-    ):
-
-        parts = data.split(
-            ":"
-        )
-
-        if len(parts) != 3:
             return
 
-        category = parts[1]
-        date = parts[2]
 
-        await show_football(
-            query,
-            category,
-            date,
+        # ----------------------------------------------------
+        # SPORT
+        # ----------------------------------------------------
+
+        if data.startswith(
+            "sport:"
+        ):
+
+            sport_key = data.split(
+                ":",
+                1,
+            )[1]
+
+            if sport_key not in SPORTS:
+
+                await query.edit_message_text(
+                    "⚠️ Sport not available.",
+                    reply_markup=InlineKeyboardMarkup(
+                        home_button()
+                    ),
+                )
+
+                return
+
+            await show_sport(
+                query,
+                sport_key,
+                today_string(),
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # PREVIOUS / NEXT DAY
+        # ----------------------------------------------------
+
+        if data.startswith(
+            "day:"
+        ):
+
+            parts = data.split(
+                ":"
+            )
+
+            if len(parts) != 4:
+
+                return
+
+            sport_key = parts[1]
+
+            current_date = parts[2]
+
+            direction = int(
+                parts[3]
+            )
+
+            base_date = datetime.strptime(
+                current_date,
+                "%Y-%m-%d",
+            )
+
+            new_date = (
+                base_date
+                + timedelta(
+                    days=direction
+                )
+            ).strftime(
+                "%Y-%m-%d"
+            )
+
+            await show_sport(
+                query,
+                sport_key,
+                new_date,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # BACK TO FIXTURES
+        # ----------------------------------------------------
+
+        if data.startswith(
+            "dayback:"
+        ):
+
+            parts = data.split(
+                ":"
+            )
+
+            sport_key = parts[1]
+
+            date = parts[2]
+
+            await show_sport(
+                query,
+                sport_key,
+                date,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # EVENT
+        # ----------------------------------------------------
+
+        if data.startswith(
+            "event:"
+        ):
+
+            parts = data.split(
+                ":"
+            )
+
+            if len(parts) < 4:
+
+                return
+
+            event_id = parts[1]
+
+            sport_key = parts[2]
+
+            date = parts[3]
+
+            await show_event(
+                query,
+                event_id,
+                sport_key,
+                date,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # WORLDWIDE TV
+        # ----------------------------------------------------
+
+        if data.startswith(
+            "world:"
+        ):
+
+            parts = data.split(
+                ":"
+            )
+
+            event_id = parts[1]
+
+            sport_key = parts[2]
+
+            date = parts[3]
+
+            await show_worldwide(
+                query,
+                event_id,
+                sport_key,
+                date,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # ALERT
+        # ----------------------------------------------------
+
+        if data.startswith(
+            "alert:"
+        ):
+
+            parts = data.split(
+                ":"
+            )
+
+            event_id = parts[1]
+
+            await save_alert(
+                query,
+                user_id,
+                event_id,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # FOLLOW
+        # ----------------------------------------------------
+
+        if data.startswith(
+            "follow:"
+        ):
+
+            parts = data.split(
+                ":"
+            )
+
+            event_id = parts[1]
+
+            await follow_team(
+                query,
+                user_id,
+                event_id,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # TV NOW
+        # ----------------------------------------------------
+
+        if data == "tvnow":
+
+            await show_tv_now(
+                query
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # STARTING SOON
+        # ----------------------------------------------------
+
+        if data == "starting":
+
+            await show_starting(
+                query
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # ALERTS
+        # ----------------------------------------------------
+
+        if data == "alerts":
+
+            await show_alerts(
+                query,
+                user_id,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # TEAMS
+        # ----------------------------------------------------
+
+        if data == "teams":
+
+            await show_teams(
+                query,
+                user_id,
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # HELP
+        # ----------------------------------------------------
+
+        if data == "help":
+
+            await show_help(
+                query
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # PREMIUM
+        # ----------------------------------------------------
+
+        if data == "premium":
+
+            await show_premium(
+                query
+            )
+
+            return
+
+
+        # ----------------------------------------------------
+        # UNKNOWN
+        # ----------------------------------------------------
+
+        await query.edit_message_text(
+            text=(
+                "⚠️ Unknown menu option.\n\n"
+                "Please return to the main menu."
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                home_button()
+            ),
         )
 
-        return
+    except Exception:
 
-    # --------------------------------------------------------
-    # GENERIC SPORTS
-    # --------------------------------------------------------
-
-    if data in SPORTS:
-
-        await show_sport(
-            query,
+        logger.exception(
+            "Callback error: %s",
             data,
-            get_uk_date(),
         )
 
-        return
+        try:
 
-    # --------------------------------------------------------
-    # GENERIC SPORT DATE
-    # --------------------------------------------------------
+            await query.edit_message_text(
+                text=(
+                    "⚠️ *Something went wrong.*\n\n"
+                    "The API may be temporarily "
+                    "unavailable. Please try again."
+                ),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    home_button()
+                ),
+            )
 
-    if data.startswith(
-        "day:"
-    ):
+        except Exception:
 
-        parts = data.split(
-            ":"
-        )
-
-        if len(parts) != 3:
-            return
-
-        sport_key = parts[1]
-        date = parts[2]
-
-        await show_sport(
-            query,
-            sport_key,
-            date,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # INDIVIDUAL MATCH
-    # --------------------------------------------------------
-
-    if data.startswith(
-        "match:"
-    ):
-
-        event_id = data.split(
-            ":",
-            1,
-        )[1]
-
-        await show_match(
-            query,
-            event_id,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # WORLDWIDE TV
-    # --------------------------------------------------------
-
-    if data.startswith(
-        "tv:"
-    ):
-
-        event_id = data.split(
-            ":",
-            1,
-        )[1]
-
-        await show_worldwide_tv(
-            query,
-            event_id,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # ALERT
-    # --------------------------------------------------------
-
-    if data.startswith(
-        "alert:"
-    ):
-
-        event_id = data.split(
-            ":",
-            1,
-        )[1]
-
-        await add_alert(
-            query,
-            user_id,
-            event_id,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # FOLLOW
-    # --------------------------------------------------------
-
-    if data.startswith(
-        "follow:"
-    ):
-
-        event_id = data.split(
-            ":",
-            1,
-        )[1]
-
-        await follow_event(
-            query,
-            user_id,
-            event_id,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # OTHER MENUS
-    # --------------------------------------------------------
-
-    if data == "tv_now":
-
-        await show_tv_now(
-            query
-        )
-
-        return
-
-    if data == "starting_soon":
-
-        await show_starting_soon(
-            query
-        )
-
-        return
-
-    if data == "my_alerts":
-
-        await show_my_alerts(
-            query,
-            user_id,
-        )
-
-        return
-
-    if data == "my_teams":
-
-        await show_my_teams(
-            query,
-            user_id,
-        )
-
-        return
-
-    if data == "premium":
-
-        await show_premium(
-            query
-        )
-
-        return
-
-    if data == "help":
-
-        await show_help(
-            query
-        )
-
-        return
-
-    if data == "search":
-
-        await show_search(
-            query
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # UNKNOWN CALLBACK
-    # --------------------------------------------------------
-
-    logger.warning(
-        "Unknown callback received: %s",
-        data,
-    )
-
-    await query.edit_message_text(
-        "⚠️ <b>Menu option unavailable.</b>\n\n"
-        "Please return to the main menu.",
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "🏠 Main Menu",
-                        callback_data="main_menu",
-                    )
-                ]
-            ]
-        ),
-        parse_mode="HTML",
-    )
+            pass
 
 
 # ============================================================
@@ -2955,14 +2569,10 @@ async def start(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    get_user_data(
-        update.effective_user.id
-    )
-
     await update.message.reply_text(
-        home_text(),
+        text=home_text(),
+        parse_mode="Markdown",
         reply_markup=main_menu(),
-        parse_mode="HTML",
     )
 
 
@@ -2976,9 +2586,12 @@ async def help_command(
 ):
 
     await update.message.reply_text(
-        "ℹ️ <b>SportPulseAlerts</b>\n\n"
-        "Use /start to open the main menu.",
-        parse_mode="HTML",
+        text=(
+            "ℹ️ *SPORT PULSE ALERTS*\n\n"
+            "Press /start to open the main menu."
+        ),
+        parse_mode="Markdown",
+        reply_markup=main_menu(),
     )
 
 
@@ -2987,13 +2600,13 @@ async def help_command(
 # ============================================================
 
 async def error_handler(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE,
+    update,
+    context,
 ):
 
-    logger.error(
-        "Unhandled exception:",
-        exc_info=context.error,
+    logger.exception(
+        "Unhandled bot error: %s",
+        context.error,
     )
 
 
@@ -3014,6 +2627,7 @@ def main():
         .build()
     )
 
+    # Commands
     application.add_handler(
         CommandHandler(
             "start",
@@ -3028,9 +2642,10 @@ def main():
         )
     )
 
+    # ALL inline buttons go through one router.
     application.add_handler(
         CallbackQueryHandler(
-            button_handler
+            callback_router
         )
     )
 
@@ -3039,7 +2654,7 @@ def main():
     )
 
     logger.info(
-        "SportPulseAlerts is now running."
+        "Bot is online."
     )
 
     application.run_polling(
