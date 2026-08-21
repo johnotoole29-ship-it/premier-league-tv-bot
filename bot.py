@@ -34,27 +34,8 @@ SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
-MAX_MESSAGE_LENGTH = 4000
-
-
-# ============================================================
-# LEAGUE IDS
-# ============================================================
-
-LEAGUES = {
-
-    "premier": "4328",
-    "championship": "4329",
-
-    "super_league": "4415",
-    "nrl": "4416",
-
-    "f1": "4370",
-
-    "ufc": "4443",
-    "wwe": "4444",
-    "boxing": "4445",
-}
+REQUEST_TIMEOUT = 20
+MAX_MESSAGE_LENGTH = 3900
 
 
 # ============================================================
@@ -85,21 +66,206 @@ if not SPORTSDB_API_KEY:
 
 
 # ============================================================
-# HOME
+# LEAGUES
+#
+# Only use fixed IDs where we know the competition.
+# ============================================================
+
+LEAGUES = {
+
+    "premier": {
+        "id": "4328",
+        "name": "Premier League",
+        "icon": "⚽",
+        "back": "football",
+    },
+
+    "championship": {
+        "id": "4329",
+        "name": "Championship",
+        "icon": "⚽",
+        "back": "football",
+    },
+
+}
+
+
+# ============================================================
+# HOME TEXT
 # ============================================================
 
 HOME_TEXT = (
     "🔥 **SPORT PULSE ALERTS**\n\n"
-    "Fixtures, upcoming events and TV coverage.\n\n"
-    "👇 **Select a sport**"
+    "Fixtures • Events • TV Coverage\n\n"
+    "👇 **Choose a sport**"
 )
+
+
+# ============================================================
+# API REQUEST
+# ============================================================
+
+def sportsdb_get(
+    endpoint,
+    params=None,
+):
+
+    url = (
+        f"{SPORTSDB_BASE}/"
+        f"{SPORTSDB_API_KEY}/"
+        f"{endpoint}"
+    )
+
+    try:
+
+        response = requests.get(
+            url,
+            params=params or {},
+            timeout=REQUEST_TIMEOUT,
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    except requests.RequestException as error:
+
+        logger.error(
+            "TheSportsDB request failed: %s",
+            error,
+        )
+
+        return None
+
+    except ValueError as error:
+
+        logger.error(
+            "Invalid JSON returned: %s",
+            error,
+        )
+
+        return None
+
+
+# ============================================================
+# DATE / TIME
+# ============================================================
+
+def get_uk_date():
+
+    return datetime.now(
+        UK_TIMEZONE
+    ).strftime(
+        "%Y-%m-%d"
+    )
+
+
+def format_display_date(
+    date_string,
+):
+
+    try:
+
+        return datetime.strptime(
+            date_string,
+            "%Y-%m-%d",
+        ).strftime(
+            "%A %d %B"
+        )
+
+    except Exception:
+
+        return date_string or "Date TBC"
+
+
+def format_event_time(
+    event,
+):
+
+    timestamp = event.get(
+        "strTimestamp"
+    )
+
+    if timestamp:
+
+        try:
+
+            timestamp = timestamp.replace(
+                "Z",
+                "+00:00",
+            )
+
+            event_datetime = datetime.fromisoformat(
+                timestamp
+            )
+
+            if event_datetime.tzinfo is None:
+
+                event_datetime = event_datetime.replace(
+                    tzinfo=timezone.utc
+                )
+
+            return event_datetime.astimezone(
+                UK_TIMEZONE
+            ).strftime(
+                "%H:%M"
+            )
+
+        except Exception:
+
+            pass
+
+
+    event_date = event.get(
+        "dateEvent"
+    )
+
+    event_time = event.get(
+        "strTime"
+    )
+
+
+    if event_date and event_time:
+
+        try:
+
+            clean_time = event_time[:8]
+
+            event_datetime = datetime.strptime(
+                f"{event_date} {clean_time}",
+                "%Y-%m-%d %H:%M:%S",
+            )
+
+            event_datetime = event_datetime.replace(
+                tzinfo=timezone.utc
+            )
+
+            return event_datetime.astimezone(
+                UK_TIMEZONE
+            ).strftime(
+                "%H:%M"
+            )
+
+        except Exception:
+
+            pass
+
+
+    if event_time:
+
+        return event_time[:5]
+
+
+    return "TBC"
 
 
 # ============================================================
 # NAVIGATION
 # ============================================================
 
-def navigation_row(back_callback="home"):
+def nav_row(
+    back_callback="home",
+):
 
     return [
 
@@ -141,35 +307,33 @@ def main_menu():
                 "🏏 Cricket",
                 callback_data="cricket",
             ),
-        ],
 
-        [
             InlineKeyboardButton(
                 "🎾 Tennis",
                 callback_data="tennis",
             ),
+        ],
 
+        [
             InlineKeyboardButton(
                 "🎯 Darts",
                 callback_data="darts",
             ),
+
+            InlineKeyboardButton(
+                "🏎️ F1",
+                callback_data="f1",
+            ),
         ],
 
         [
-            InlineKeyboardButton(
-                "🏎️ Formula 1",
-                callback_data="f1",
-            ),
-
             InlineKeyboardButton(
                 "🏌️ Golf",
                 callback_data="golf",
             ),
-        ],
 
-        [
             InlineKeyboardButton(
-                "🥊 Combat Sports",
+                "🥊 Combat",
                 callback_data="combat",
             ),
         ],
@@ -188,11 +352,6 @@ def main_menu():
 
         [
             InlineKeyboardButton(
-                "💎 Premium",
-                callback_data="premium",
-            ),
-
-            InlineKeyboardButton(
                 "ℹ️ Help",
                 callback_data="help",
             ),
@@ -200,7 +359,9 @@ def main_menu():
 
     ]
 
-    return InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(
+        keyboard
+    )
 
 
 # ============================================================
@@ -225,7 +386,7 @@ def football_menu():
             )
         ],
 
-        navigation_row("home"),
+        nav_row("home"),
 
     ])
 
@@ -259,7 +420,7 @@ def rugby_menu():
             )
         ],
 
-        navigation_row("home"),
+        nav_row("home"),
 
     ])
 
@@ -293,7 +454,7 @@ def combat_menu():
             )
         ],
 
-        navigation_row("home"),
+        nav_row("home"),
 
     ])
 
@@ -302,7 +463,10 @@ def combat_menu():
 # TODAY / NEXT 7 MENU
 # ============================================================
 
-def league_menu(prefix, back_callback):
+def date_menu(
+    prefix,
+    back_callback,
+):
 
     return InlineKeyboardMarkup([
 
@@ -320,57 +484,7 @@ def league_menu(prefix, back_callback):
             )
         ],
 
-        navigation_row(back_callback),
-
-    ])
-
-
-def sport_menu(prefix, back_callback="home"):
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "📅 Today",
-                callback_data=f"{prefix}_today",
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "➡️ Next 7 Days",
-                callback_data=f"{prefix}_next7",
-            )
-        ],
-
-        navigation_row(back_callback),
-
-    ])
-
-
-# ============================================================
-# UPCOMING MENU
-# ============================================================
-
-def upcoming_menu(prefix, back_callback):
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "📅 Today",
-                callback_data=f"{prefix}_today",
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "➡️ Next 7 Days",
-                callback_data=f"{prefix}_next7",
-            )
-        ],
-
-        navigation_row(back_callback),
+        nav_row(back_callback),
 
     ])
 
@@ -379,7 +493,10 @@ def upcoming_menu(prefix, back_callback):
 # RESULTS MENU
 # ============================================================
 
-def results_menu(back_callback, worldwide_callback):
+def results_menu(
+    back_callback,
+    worldwide_callback,
+):
 
     return InlineKeyboardMarkup([
 
@@ -390,159 +507,13 @@ def results_menu(back_callback, worldwide_callback):
             )
         ],
 
-        navigation_row(back_callback),
+        nav_row(back_callback),
 
     ])
 
 
 # ============================================================
-# DATE
-# ============================================================
-
-def get_uk_date():
-
-    return datetime.now(
-        UK_TIMEZONE
-    ).strftime(
-        "%Y-%m-%d"
-    )
-
-
-def format_display_date(date_string):
-
-    try:
-
-        return datetime.strptime(
-            date_string,
-            "%Y-%m-%d",
-        ).strftime(
-            "%A %d %B %Y"
-        )
-
-    except Exception:
-
-        return date_string or "Date TBC"
-
-
-# ============================================================
-# EVENT TIME
-# ============================================================
-
-def format_event_time(event):
-
-    timestamp = event.get("strTimestamp")
-
-    if timestamp:
-
-        try:
-
-            value = timestamp.replace(
-                "Z",
-                "+00:00",
-            )
-
-            event_datetime = datetime.fromisoformat(
-                value
-            )
-
-            if event_datetime.tzinfo is None:
-
-                event_datetime = event_datetime.replace(
-                    tzinfo=timezone.utc
-                )
-
-            return event_datetime.astimezone(
-                UK_TIMEZONE
-            ).strftime("%H:%M")
-
-        except Exception:
-
-            pass
-
-
-    event_date = event.get("dateEvent")
-    event_time = event.get("strTime")
-
-
-    if event_date and event_time:
-
-        try:
-
-            clean_time = event_time[:8]
-
-            event_datetime = datetime.strptime(
-                f"{event_date} {clean_time}",
-                "%Y-%m-%d %H:%M:%S",
-            )
-
-            event_datetime = event_datetime.replace(
-                tzinfo=timezone.utc
-            )
-
-            return event_datetime.astimezone(
-                UK_TIMEZONE
-            ).strftime("%H:%M")
-
-        except Exception:
-
-            pass
-
-
-    if event_time:
-
-        return event_time[:5]
-
-
-    return "Time TBC"
-
-
-# ============================================================
-# API REQUEST
-# ============================================================
-
-def sportsdb_get(endpoint, params=None):
-
-    url = (
-        f"{SPORTSDB_BASE}/"
-        f"{SPORTSDB_API_KEY}/"
-        f"{endpoint}"
-    )
-
-    try:
-
-        response = requests.get(
-            url,
-            params=params or {},
-            timeout=20,
-        )
-
-        response.raise_for_status()
-
-        return response.json()
-
-
-    except requests.RequestException as error:
-
-        logger.error(
-            "TheSportsDB request failed: %s",
-            error,
-        )
-
-        return None
-
-
-    except ValueError as error:
-
-        logger.error(
-            "Invalid JSON returned: %s",
-            error,
-        )
-
-        return None
-
-
-# ============================================================
-# EVENTS FOR DAY
+# GET EVENTS BY DAY
 # ============================================================
 
 def get_events_for_day(
@@ -555,11 +526,9 @@ def get_events_for_day(
         "d": date,
     }
 
-
     if sport:
 
         params["s"] = sport
-
 
     if league_id:
 
@@ -577,93 +546,62 @@ def get_events_for_day(
         return []
 
 
-    return data.get("events") or []
-
-
-# ============================================================
-# EXACT LEAGUE EVENTS
-# ============================================================
-
-def get_premier_league_matches(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["premier"],
-    )
-
-
-def get_championship_matches(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["championship"],
-    )
-
-
-def get_super_league_events(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["super_league"],
-    )
-
-
-def get_nrl_events(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["nrl"],
-    )
-
-
-def get_f1_events(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["f1"],
-    )
-
-
-def get_ufc_events(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["ufc"],
-    )
-
-
-def get_boxing_events(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["boxing"],
-    )
-
-
-def get_wwe_events(date):
-
-    return get_events_for_day(
-        date,
-        league_id=LEAGUES["wwe"],
+    return (
+        data.get("events")
+        or []
     )
 
 
 # ============================================================
-# RUGBY UNION
+# FOOTBALL
 # ============================================================
 
-def get_rugby_union_events(date):
+def get_premier_events(
+    date,
+):
 
-    events = get_events_for_day(
+    return get_events_for_day(
+        date,
+        sport="Soccer",
+        league_id="4328",
+    )
+
+
+def get_championship_events(
+    date,
+):
+
+    return get_events_for_day(
+        date,
+        sport="Soccer",
+        league_id="4329",
+    )
+
+
+# ============================================================
+# RUGBY
+# ============================================================
+
+def get_rugby_events(
+    date,
+):
+
+    return get_events_for_day(
         date,
         sport="Rugby",
     )
 
-    excluded_ids = {
-        LEAGUES["super_league"],
-        LEAGUES["nrl"],
-    }
 
+def filter_super_league(
+    events,
+):
+
+    keywords = [
+
+        "super league",
+        "betfred super league",
+
+    ]
 
     return [
 
@@ -671,18 +609,115 @@ def get_rugby_union_events(date):
 
         for event in events
 
-        if str(
-            event.get("idLeague")
-        ) not in excluded_ids
+        if any(
+
+            keyword in (
+                event.get("strLeague")
+                or ""
+            ).lower()
+
+            for keyword in keywords
+
+        )
 
     ]
 
 
+def filter_nrl(
+    events,
+):
+
+    return [
+
+        event
+
+        for event in events
+
+        if "nrl" in (
+
+            event.get("strLeague")
+            or ""
+
+        ).lower()
+
+        or "national rugby league" in (
+
+            event.get("strLeague")
+            or ""
+
+        ).lower()
+
+    ]
+
+
+def filter_rugby_union(
+    events,
+):
+
+    excluded = [
+
+        "super league",
+        "nrl",
+        "national rugby league",
+
+    ]
+
+    return [
+
+        event
+
+        for event in events
+
+        if not any(
+
+            word in (
+
+                event.get("strLeague")
+                or ""
+
+            ).lower()
+
+            for word in excluded
+
+        )
+
+    ]
+
+
+def get_rugby_union_events(
+    date,
+):
+
+    return filter_rugby_union(
+        get_rugby_events(date)
+    )
+
+
+def get_super_league_events(
+    date,
+):
+
+    return filter_super_league(
+        get_rugby_events(date)
+    )
+
+
+def get_nrl_events(
+    date,
+):
+
+    return filter_nrl(
+        get_rugby_events(date)
+    )
+
+
 # ============================================================
-# GENERIC SPORTS
+# OTHER SPORTS
 # ============================================================
 
-def get_cricket_events(date):
+def get_cricket_events(
+    date,
+):
 
     return get_events_for_day(
         date,
@@ -690,7 +725,9 @@ def get_cricket_events(date):
     )
 
 
-def get_tennis_events(date):
+def get_tennis_events(
+    date,
+):
 
     return get_events_for_day(
         date,
@@ -698,7 +735,9 @@ def get_tennis_events(date):
     )
 
 
-def get_darts_events(date):
+def get_darts_events(
+    date,
+):
 
     return get_events_for_day(
         date,
@@ -706,7 +745,42 @@ def get_darts_events(date):
     )
 
 
-def get_golf_events(date):
+def get_f1_events(
+    date,
+):
+
+    events = get_events_for_day(
+        date
+    )
+
+    return [
+
+        event
+
+        for event in events
+
+        if "formula 1" in (
+
+            event.get("strLeague")
+            or ""
+
+        ).lower()
+
+        or event.get("strSport") == "Motorsport"
+
+        and "f1" in (
+
+            event.get("strEvent")
+            or ""
+
+        ).lower()
+
+    ]
+
+
+def get_golf_events(
+    date,
+):
 
     return get_events_for_day(
         date,
@@ -715,87 +789,119 @@ def get_golf_events(date):
 
 
 # ============================================================
-# TV CHANNELS
+# COMBAT SPORTS
 # ============================================================
 
-def get_tv_channels_for_date(date):
+def get_fighting_events(
+    date,
+):
 
-    data = sportsdb_get(
-        "eventstv.php",
-        {
-            "d": date,
-        },
+    return get_events_for_day(
+        date,
+        sport="Fighting",
     )
 
 
-    if not data:
+def get_ufc_events(
+    date,
+):
 
-        return {}
-
-
-    broadcasts = (
-
-        data.get("tvevents")
-
-        or data.get("events")
-
-        or []
-
+    events = get_fighting_events(
+        date
     )
 
+    return [
 
-    tv_by_event = {}
+        event
 
+        for event in events
 
-    for broadcast in broadcasts:
+        if "ufc" in (
 
-        event_id = broadcast.get("idEvent")
-
-        if not event_id:
-
-            continue
-
-
-        channel = (
-
-            broadcast.get("strChannel")
-
-            or broadcast.get("strEvent")
-
-        )
-
-
-        country = (
-            broadcast.get("strCountry")
+            event.get("strLeague")
             or ""
-        )
+
+        ).lower()
+
+        or "ufc" in (
+
+            event.get("strEvent")
+            or ""
+
+        ).lower()
+
+    ]
 
 
-        if not channel:
+def get_boxing_events(
+    date,
+):
 
-            continue
+    events = get_fighting_events(
+        date
+    )
+
+    return [
+
+        event
+
+        for event in events
+
+        if "boxing" in (
+
+            event.get("strLeague")
+            or ""
+
+        ).lower()
+
+        or "boxing" in (
+
+            event.get("strEvent")
+            or ""
+
+        ).lower()
+
+    ]
 
 
-        tv_by_event.setdefault(
-            str(event_id),
-            [],
-        ).append({
+def get_wwe_events(
+    date,
+):
 
-            "channel": channel,
+    events = get_events_for_day(
+        date
+    )
 
-            "country": country,
+    return [
 
-        })
+        event
 
+        for event in events
 
-    return tv_by_event
+        if "wwe" in (
+
+            event.get("strLeague")
+            or ""
+
+        ).lower()
+
+        or "wwe" in (
+
+            event.get("strEvent")
+            or ""
+
+        ).lower()
+
+    ]
 
 
 # ============================================================
-# CLEAN CHANNELS
+# CLEAN TV CHANNELS
 # ============================================================
 
-def clean_tv_channels(channels):
+def clean_tv_channels(
+    channels,
+):
 
     seen = set()
 
@@ -804,12 +910,15 @@ def clean_tv_channels(channels):
 
     for item in channels:
 
-        channel = item.get("channel")
+        channel = (
+            item.get("channel")
+            or ""
+        ).strip()
 
         country = (
             item.get("country")
             or ""
-        )
+        ).strip()
 
 
         if not channel:
@@ -843,12 +952,244 @@ def clean_tv_channels(channels):
 
 
 # ============================================================
-# EVENT TV DISPLAY
+# LOOKUP TV FOR ONE EVENT
+#
+# This is the main TV lookup.
 # ============================================================
 
-def format_event_channels(
+def get_tv_channels_for_event(
+    event_id,
+):
+
+    if not event_id:
+
+        return []
+
+
+    data = sportsdb_get(
+        "lookuptv.php",
+        {
+            "id": event_id,
+        },
+    )
+
+
+    if not data:
+
+        return []
+
+
+    broadcasts = (
+
+        data.get("tvevents")
+
+        or data.get("events")
+
+        or data.get("tv")
+
+        or []
+
+    )
+
+
+    channels = []
+
+
+    for broadcast in broadcasts:
+
+        channel = (
+
+            broadcast.get("strChannel")
+
+            or broadcast.get("strChannelName")
+
+            or broadcast.get("strEvent")
+
+            or ""
+
+        )
+
+
+        country = (
+
+            broadcast.get("strCountry")
+
+            or broadcast.get("strCountryName")
+
+            or ""
+
+        )
+
+
+        if channel:
+
+            channels.append({
+
+                "channel": channel,
+
+                "country": country,
+
+            })
+
+
+    return clean_tv_channels(
+        channels
+    )
+
+
+# ============================================================
+# DAILY TV LOOKUP
+# ============================================================
+
+def get_daily_tv_channels(
+    date,
+    country=None,
+):
+
+    params = {
+        "d": date,
+    }
+
+
+    if country:
+
+        params["a"] = country
+
+
+    data = sportsdb_get(
+        "eventstv.php",
+        params,
+    )
+
+
+    if not data:
+
+        return {}
+
+
+    broadcasts = (
+
+        data.get("tvevents")
+
+        or data.get("events")
+
+        or []
+
+    )
+
+
+    tv_by_event = {}
+
+
+    for broadcast in broadcasts:
+
+        event_id = broadcast.get(
+            "idEvent"
+        )
+
+        if not event_id:
+
+            continue
+
+
+        channel = (
+
+            broadcast.get("strChannel")
+
+            or broadcast.get("strChannelName")
+
+            or broadcast.get("strEvent")
+
+            or ""
+
+        )
+
+
+        country_name = (
+
+            broadcast.get("strCountry")
+
+            or broadcast.get("strCountryName")
+
+            or ""
+
+        )
+
+
+        if not channel:
+
+            continue
+
+
+        tv_by_event.setdefault(
+
+            str(event_id),
+
+            []
+
+        ).append({
+
+            "channel": channel,
+
+            "country": country_name,
+
+        })
+
+
+    for event_id in tv_by_event:
+
+        tv_by_event[event_id] = (
+            clean_tv_channels(
+                tv_by_event[event_id]
+            )
+        )
+
+
+    return tv_by_event
+
+
+# ============================================================
+# BUILD TV CACHE
+#
+# 1. UK TV listings
+# 2. Worldwide daily listings
+# ============================================================
+
+def build_tv_cache(
+    date,
+):
+
+    uk_tv = get_daily_tv_channels(
+        date,
+        country="United_Kingdom",
+    )
+
+    worldwide_tv = get_daily_tv_channels(
+        date
+    )
+
+    return {
+
+        "uk": uk_tv,
+
+        "worldwide": worldwide_tv,
+
+    }
+
+
+# ============================================================
+# GET CHANNELS FOR EVENT
+#
+# Priority:
+#
+# 1. lookuptv.php event lookup
+# 2. UK daily TV listing
+# 3. Worldwide daily TV listing
+# ============================================================
+
+def get_event_channels(
     event,
-    tv_by_event,
+    tv_cache,
 ):
 
     event_id = str(
@@ -857,13 +1198,140 @@ def format_event_channels(
     )
 
 
-    channels = tv_by_event.get(
-        event_id,
-        [],
+    channels = get_tv_channels_for_event(
+        event_id
     )
 
 
-    channels = clean_tv_channels(
+    uk_channels = (
+
+        tv_cache.get("uk", {})
+
+        .get(event_id, [])
+
+    )
+
+
+    worldwide_channels = (
+
+        tv_cache.get("worldwide", {})
+
+        .get(event_id, [])
+
+    )
+
+
+    combined = []
+
+    combined.extend(
+        uk_channels
+    )
+
+    combined.extend(
+        channels
+    )
+
+    combined.extend(
+        worldwide_channels
+    )
+
+
+    return clean_tv_channels(
+        combined
+    )
+
+
+# ============================================================
+# PRIORITISE UK CHANNELS
+# ============================================================
+
+def order_channels(
+    channels,
+):
+
+    uk = []
+
+    other = []
+
+
+    uk_names = {
+
+        "united kingdom",
+        "uk",
+        "england",
+        "great britain",
+
+    }
+
+
+    for item in channels:
+
+        country = (
+
+            item.get("country")
+            or ""
+
+        ).strip().lower()
+
+
+        channel = (
+
+            item.get("channel")
+            or ""
+
+        ).lower()
+
+
+        if (
+
+            country in uk_names
+
+            or "sky sports" in channel
+
+            or "tnt sports" in channel
+
+            or "bbc" in channel
+
+            or "itv" in channel
+
+            or "amazon prime" in channel
+
+            or "discovery+" in channel
+
+            or "channel 4" in channel
+
+            or "channel 5" in channel
+
+        ):
+
+            uk.append(item)
+
+        else:
+
+            other.append(item)
+
+
+    return clean_tv_channels(
+        uk + other
+    )
+
+
+# ============================================================
+# FORMAT CHANNELS UNDER EVENT
+# ============================================================
+
+def format_event_channels(
+    event,
+    tv_cache,
+):
+
+    channels = get_event_channels(
+        event,
+        tv_cache,
+    )
+
+
+    channels = order_channels(
         channels
     )
 
@@ -871,18 +1339,22 @@ def format_event_channels(
     if not channels:
 
         return (
-            "📺 TV: Not currently listed"
+            "📺 **TV:** Not currently listed"
         )
 
 
     display = []
 
 
-    for item in channels[:4]:
+    for item in channels[:5]:
 
-        channel = item["channel"]
+        channel = item.get(
+            "channel"
+        )
 
-        country = item["country"]
+        country = item.get(
+            "country"
+        )
 
 
         if country:
@@ -893,11 +1365,13 @@ def format_event_channels(
 
         else:
 
-            display.append(channel)
+            display.append(
+                channel
+            )
 
 
     return (
-        "📺 "
+        "📺 **TV:** "
         + " • ".join(display)
     )
 
@@ -906,32 +1380,42 @@ def format_event_channels(
 # EVENT TITLE
 # ============================================================
 
-def event_title(event):
+def event_title(
+    event,
+):
 
-    if event.get("strEvent"):
-
-        return event.get("strEvent")
-
-
-    home = (
-        event.get("strHomeTeam")
-        or "Home"
+    home = event.get(
+        "strHomeTeam"
     )
 
-    away = (
-        event.get("strAwayTeam")
-        or "Away"
+    away = event.get(
+        "strAwayTeam"
     )
 
 
-    return f"{home} vs {away}"
+    if home and away:
+
+        return f"{home} vs {away}"
+
+
+    return (
+
+        event.get("strEvent")
+
+        or event.get("strEventAlternate")
+
+        or "Event"
+
+    )
 
 
 # ============================================================
 # EVENT LOCATION
 # ============================================================
 
-def event_location(event):
+def event_location(
+    event,
+):
 
     parts = []
 
@@ -951,7 +1435,9 @@ def event_location(event):
             parts.append(value)
 
 
-    return " • ".join(parts)
+    return " • ".join(
+        parts
+    )
 
 
 # ============================================================
@@ -961,7 +1447,7 @@ def event_location(event):
 def build_event_block(
     event,
     icon,
-    tv_by_event,
+    tv_cache,
 ):
 
     lines = [
@@ -973,9 +1459,13 @@ def build_event_block(
     ]
 
 
-    league = event.get("strLeague")
+    league = event.get(
+        "strLeague"
+    )
 
-    location = event_location(event)
+    location = event_location(
+        event
+    )
 
 
     if league:
@@ -996,20 +1486,24 @@ def build_event_block(
 
         format_event_channels(
             event,
-            tv_by_event,
+            tv_cache,
         )
 
     )
 
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines
+    )
 
 
 # ============================================================
 # SORT EVENTS
 # ============================================================
 
-def sort_events(events):
+def sort_events(
+    events,
+):
 
     return sorted(
 
@@ -1032,7 +1526,7 @@ def sort_events(events):
 
 
 # ============================================================
-# BUILD TODAY
+# BUILD TODAY MESSAGE
 # ============================================================
 
 def build_today_message(
@@ -1042,7 +1536,7 @@ def build_today_message(
     icon,
 ):
 
-    tv_by_event = get_tv_channels_for_date(
+    tv_cache = build_tv_cache(
         date
     )
 
@@ -1063,10 +1557,12 @@ def build_today_message(
     if not events:
 
         lines.append(
-            "No events found."
+            "No events found today."
         )
 
-        return "\n".join(lines)
+        return "\n".join(
+            lines
+        )
 
 
     for event in sort_events(events):
@@ -1076,15 +1572,21 @@ def build_today_message(
             build_event_block(
                 event,
                 icon,
-                tv_by_event,
+                tv_cache,
             )
 
+        )
+
+        lines.append(
+            "━━━━━━━━━━━━━━"
         )
 
         lines.append("")
 
 
-    return "\n".join(lines).strip()
+    return "\n".join(
+        lines
+    ).strip()
 
 
 # ============================================================
@@ -1097,36 +1599,47 @@ def build_next_7_days_message(
     icon,
 ):
 
-    start = datetime.now(
+    start_date = datetime.now(
         UK_TIMEZONE
     ).date()
 
 
     all_events = []
 
-    tv_cache = {}
+    tv_caches = {}
 
 
     for day_number in range(7):
 
         date = (
 
-            start
-            + timedelta(days=day_number)
+            start_date
 
-        ).strftime("%Y-%m-%d")
+            + timedelta(
+                days=day_number
+            )
+
+        ).strftime(
+            "%Y-%m-%d"
+        )
 
 
-        events = event_function(date)
+        events = event_function(
+            date
+        )
 
 
         if events:
 
-            all_events.extend(events)
+            all_events.extend(
+                events
+            )
 
 
-        tv_cache[date] = (
-            get_tv_channels_for_date(date)
+        tv_caches[date] = (
+            build_tv_cache(
+                date
+            )
         )
 
 
@@ -1149,7 +1662,9 @@ def build_next_7_days_message(
             "No events found in the next 7 days."
         )
 
-        return "\n".join(lines)
+        return "\n".join(
+            lines
+        )
 
 
     current_date = None
@@ -1157,7 +1672,102 @@ def build_next_7_days_message(
 
     for event in sort_events(all_events):
 
-        event_date = event.get("dateEvent")
+        event_date = event.get(
+            "dateEvent"
+        )
+
+
+        if event_date != current_date:
+
+            current_date = event_date
+
+            lines.append(
+
+                f"📅 **{format_display_date(event_date)}**"
+
+            )
+
+            lines.append("")
+
+
+        tv_cache = tv_caches.get(
+            event_date,
+            {
+
+                "uk": {},
+                "worldwide": {},
+
+            },
+        )
+
+
+        lines.append(
+
+            build_event_block(
+                event,
+                icon,
+                tv_cache,
+            )
+
+        )
+
+        lines.append(
+            "━━━━━━━━━━━━━━"
+        )
+
+        lines.append("")
+
+
+    return "\n".join(
+        lines
+    ).strip()
+
+
+# ============================================================
+# WORLDWIDE CHANNELS
+# ============================================================
+
+def build_worldwide_message(
+    events,
+):
+
+    if not events:
+
+        return (
+            "🌍 **WORLDWIDE CHANNELS**\n\n"
+            "No events found."
+        )
+
+
+    lines = [
+
+        "🌍 **WORLDWIDE TV CHANNELS**",
+
+        "",
+
+    ]
+
+
+    current_date = None
+
+
+    tv_caches = {}
+
+
+    for event in sort_events(events):
+
+        event_date = event.get(
+            "dateEvent"
+        )
+
+
+        if event_date not in tv_caches:
+
+            tv_caches[event_date] = (
+                build_tv_cache(
+                    event_date
+                )
+            )
 
 
         if event_date != current_date:
@@ -1175,176 +1785,97 @@ def build_next_7_days_message(
 
         lines.append(
 
-            build_event_block(
-                event,
-                icon,
-                tv_cache.get(
-                    event_date,
-                    {},
-                ),
-            )
+            f"🏆 **{event_title(event)}**"
 
         )
 
-        lines.append("")
 
+        channels = get_event_channels(
 
-    return "\n".join(lines).strip()
+            event,
 
+            tv_caches[event_date],
 
-# ============================================================
-# WORLDWIDE CHANNELS
-# ============================================================
-
-def build_worldwide_message(events):
-
-    if not events:
-
-        return (
-            "🌍 **WORLDWIDE TV CHANNELS**\n\n"
-            "No events found."
         )
 
 
-    channels_by_date = {}
-
-    tv_cache = {}
-
-
-    for event in events:
-
-        event_date = event.get("dateEvent")
-
-        event_id = str(
-            event.get("idEvent")
-            or ""
-        )
-
-
-        if not event_date or not event_id:
-
-            continue
-
-
-        if event_date not in tv_cache:
-
-            tv_cache[event_date] = (
-                get_tv_channels_for_date(
-                    event_date
-                )
-            )
-
-
-        channels = tv_cache[
-            event_date
-        ].get(
-            event_id,
-            [],
-        )
-
-
-        channels = clean_tv_channels(
+        channels = order_channels(
             channels
         )
 
 
-        if channels:
+        if not channels:
 
-            channels_by_date.setdefault(
-                event_date,
-                [],
-            ).extend(channels)
+            lines.append(
+                "📺 Not currently listed"
+            )
 
+        else:
 
-    if not channels_by_date:
-
-        return (
-            "🌍 **WORLDWIDE TV CHANNELS**\n\n"
-            "No worldwide TV information is currently listed."
-        )
+            grouped = {}
 
 
-    lines = [
+            for item in channels:
 
-        "🌍 **WORLDWIDE TV CHANNELS**",
+                country = (
 
-        "",
+                    item.get("country")
 
-    ]
+                    or "International"
+
+                )
 
 
-    for event_date in sorted(
-        channels_by_date
-    ):
+                grouped.setdefault(
+                    country,
+                    []
+                ).append(
+
+                    item.get("channel")
+                )
+
+
+            for country, country_channels in grouped.items():
+
+                unique = []
+
+
+                for channel in country_channels:
+
+                    if channel not in unique:
+
+                        unique.append(
+                            channel
+                        )
+
+
+                lines.append(
+                    f"🌍 **{country}:** "
+                    + ", ".join(unique[:10])
+                )
+
 
         lines.append(
-
-            f"📅 **{format_display_date(event_date)}**"
-
+            "━━━━━━━━━━━━━━"
         )
 
         lines.append("")
 
 
-        grouped = {}
-
-
-        for item in channels_by_date[event_date]:
-
-            country = (
-                item["country"]
-                or "International"
-            )
-
-            channel = item["channel"]
-
-
-            grouped.setdefault(
-                country,
-                []
-            ).append(channel)
-
-
-        for country in sorted(grouped):
-
-            lines.append(
-                f"🌍 **{country}**"
-            )
-
-
-            unique_channels = []
-
-
-            for channel in grouped[country]:
-
-                if channel not in unique_channels:
-
-                    unique_channels.append(channel)
-
-
-            for channel in unique_channels[:20]:
-
-                lines.append(
-                    f"• {channel}"
-                )
-
-
-            lines.append("")
-
-
-    return "\n".join(lines).strip()
+    return "\n".join(
+        lines
+    ).strip()
 
 
 # ============================================================
-# TELEGRAM MESSAGE SPLITTING
+# SPLIT LONG TELEGRAM MESSAGES
 # ============================================================
 
 def split_message(
     text,
-    limit=MAX_MESSAGE_LENGTH,
 ):
 
-    if len(text) <= limit:
+    if len(text) <= MAX_MESSAGE_LENGTH:
 
         return [text]
 
@@ -1358,11 +1889,20 @@ def split_message(
         keepends=True
     ):
 
-        if len(current) + len(line) > limit:
+        if (
+
+            len(current)
+            + len(line)
+
+            > MAX_MESSAGE_LENGTH
+
+        ):
 
             if current:
 
-                chunks.append(current)
+                chunks.append(
+                    current
+                )
 
                 current = ""
 
@@ -1372,7 +1912,9 @@ def split_message(
 
     if current:
 
-        chunks.append(current)
+        chunks.append(
+            current
+        )
 
 
     return chunks
@@ -1384,7 +1926,9 @@ async def send_long_message(
     reply_markup,
 ):
 
-    chunks = split_message(text)
+    chunks = split_message(
+        text
+    )
 
 
     await query.edit_message_text(
@@ -1415,164 +1959,163 @@ async def send_long_message(
 
 SPORT_CONFIG = {
 
-    "premier": (
-        "Premier League",
-        get_premier_league_matches,
-        "⚽",
-        "football",
-    ),
+    "premier": {
 
-    "championship": (
-        "Championship",
-        get_championship_matches,
-        "⚽",
-        "football",
-    ),
+        "name": "Premier League",
 
-    "rugby_union": (
-        "Rugby Union",
-        get_rugby_union_events,
-        "🏉",
-        "rugby",
-    ),
+        "icon": "⚽",
 
-    "super_league": (
-        "Super League",
-        get_super_league_events,
-        "🏉",
-        "rugby",
-    ),
+        "function": get_premier_events,
 
-    "nrl": (
-        "NRL",
-        get_nrl_events,
-        "🇦🇺",
-        "rugby",
-    ),
+        "back": "football",
 
-    "cricket": (
-        "Cricket",
-        get_cricket_events,
-        "🏏",
-        "home",
-    ),
+    },
 
-    "tennis": (
-        "Tennis",
-        get_tennis_events,
-        "🎾",
-        "home",
-    ),
+    "championship": {
 
-    "darts": (
-        "Darts",
-        get_darts_events,
-        "🎯",
-        "home",
-    ),
+        "name": "Championship",
 
-    "f1": (
-        "Formula 1",
-        get_f1_events,
-        "🏎️",
-        "home",
-    ),
+        "icon": "⚽",
 
-    "ufc": (
-        "UFC",
-        get_ufc_events,
-        "🥊",
-        "combat",
-    ),
+        "function": get_championship_events,
 
-    "boxing": (
-        "Boxing",
-        get_boxing_events,
-        "🥊",
-        "combat",
-    ),
+        "back": "football",
 
-    "wwe": (
-        "WWE",
-        get_wwe_events,
-        "🤼",
-        "combat",
-    ),
+    },
 
-    "golf": (
-        "Golf",
-        get_golf_events,
-        "🏌️",
-        "home",
-    ),
+    "rugby_union": {
+
+        "name": "Rugby Union",
+
+        "icon": "🏉",
+
+        "function": get_rugby_union_events,
+
+        "back": "rugby",
+
+    },
+
+    "super_league": {
+
+        "name": "Super League",
+
+        "icon": "🏉",
+
+        "function": get_super_league_events,
+
+        "back": "rugby",
+
+    },
+
+    "nrl": {
+
+        "name": "NRL",
+
+        "icon": "🇦🇺",
+
+        "function": get_nrl_events,
+
+        "back": "rugby",
+
+    },
+
+    "cricket": {
+
+        "name": "Cricket",
+
+        "icon": "🏏",
+
+        "function": get_cricket_events,
+
+        "back": "home",
+
+    },
+
+    "tennis": {
+
+        "name": "Tennis",
+
+        "icon": "🎾",
+
+        "function": get_tennis_events,
+
+        "back": "home",
+
+    },
+
+    "darts": {
+
+        "name": "Darts",
+
+        "icon": "🎯",
+
+        "function": get_darts_events,
+
+        "back": "home",
+
+    },
+
+    "f1": {
+
+        "name": "Formula 1",
+
+        "icon": "🏎️",
+
+        "function": get_f1_events,
+
+        "back": "home",
+
+    },
+
+    "golf": {
+
+        "name": "Golf",
+
+        "icon": "🏌️",
+
+        "function": get_golf_events,
+
+        "back": "home",
+
+    },
+
+    "ufc": {
+
+        "name": "UFC",
+
+        "icon": "🥊",
+
+        "function": get_ufc_events,
+
+        "back": "combat",
+
+    },
+
+    "boxing": {
+
+        "name": "Boxing",
+
+        "icon": "🥊",
+
+        "function": get_boxing_events,
+
+        "back": "combat",
+
+    },
+
+    "wwe": {
+
+        "name": "WWE",
+
+        "icon": "🤼",
+
+        "function": get_wwe_events,
+
+        "back": "combat",
+
+    },
 
 }
-
-
-# ============================================================
-# GET EVENTS FOR WORLDWIDE BUTTON
-# ============================================================
-
-def get_events_for_scope(scope):
-
-    clean_scope = scope.replace(
-        "worldwide_",
-        "",
-        1,
-    )
-
-
-    if clean_scope.endswith("_today"):
-
-        prefix = clean_scope[:-6]
-
-        if prefix in SPORT_CONFIG:
-
-            event_function = SPORT_CONFIG[
-                prefix
-            ][1]
-
-            return event_function(
-                get_uk_date()
-            )
-
-
-    if clean_scope.endswith("_next7"):
-
-        prefix = clean_scope[:-6]
-
-        if prefix in SPORT_CONFIG:
-
-            event_function = SPORT_CONFIG[
-                prefix
-            ][1]
-
-            events = []
-
-            start = datetime.now(
-                UK_TIMEZONE
-            ).date()
-
-
-            for day_number in range(7):
-
-                date = (
-
-                    start
-                    + timedelta(days=day_number)
-
-                ).strftime("%Y-%m-%d")
-
-
-                events.extend(
-                    event_function(date)
-                )
-
-
-            return events
-
-
-    return []
 
 
 # ============================================================
@@ -1613,7 +2156,10 @@ async def button_handler(
 
     # HOME
 
-    if data in ("home", "back"):
+    if data in (
+        "home",
+        "back",
+    ):
 
         await query.edit_message_text(
 
@@ -1682,145 +2228,24 @@ async def button_handler(
         return
 
 
-    # FOOTBALL LEAGUES
+    # LEAGUE / SPORT FOLDERS
 
-    if data == "premier":
+    if data in SPORT_CONFIG:
 
-        await query.edit_message_text(
-
-            "⚽ **PREMIER LEAGUE**\n\n"
-            "Choose an option:",
-
-            reply_markup=league_menu(
-                "premier",
-                "football",
-            ),
-
-            parse_mode="Markdown",
-
-        )
-
-        return
-
-
-    if data == "championship":
+        config = SPORT_CONFIG[data]
 
         await query.edit_message_text(
 
-            "⚽ **CHAMPIONSHIP**\n\n"
+            f"{config['icon']} "
+            f"**{config['name'].upper()}**\n\n"
             "Choose an option:",
 
-            reply_markup=league_menu(
-                "championship",
-                "football",
-            ),
+            reply_markup=date_menu(
 
-            parse_mode="Markdown",
-
-        )
-
-        return
-
-
-    # RUGBY LEAGUES
-
-    rugby_titles = {
-
-        "rugby_union":
-            "🏉 **RUGBY UNION**",
-
-        "super_league":
-            "🏉 **SUPER LEAGUE**",
-
-        "nrl":
-            "🇦🇺 **NRL**",
-
-    }
-
-
-    if data in rugby_titles:
-
-        await query.edit_message_text(
-
-            f"{rugby_titles[data]}\n\n"
-            "Choose an option:",
-
-            reply_markup=league_menu(
                 data,
-                "rugby",
-            ),
 
-            parse_mode="Markdown",
+                config["back"],
 
-        )
-
-        return
-
-
-    # OTHER SPORTS
-
-    generic_titles = {
-
-        "cricket":
-            "🏏 **CRICKET**",
-
-        "tennis":
-            "🎾 **TENNIS**",
-
-        "darts":
-            "🎯 **DARTS**",
-
-        "f1":
-            "🏎️ **FORMULA 1**",
-
-        "golf":
-            "🏌️ **GOLF**",
-
-    }
-
-
-    if data in generic_titles:
-
-        await query.edit_message_text(
-
-            f"{generic_titles[data]}\n\n"
-            "Choose an option:",
-
-            reply_markup=sport_menu(data),
-
-            parse_mode="Markdown",
-
-        )
-
-        return
-
-
-    # COMBAT SPORTS
-
-    combat_titles = {
-
-        "ufc":
-            "🥊 **UFC**",
-
-        "boxing":
-            "🥊 **BOXING**",
-
-        "wwe":
-            "🤼 **WWE**",
-
-    }
-
-
-    if data in combat_titles:
-
-        await query.edit_message_text(
-
-            f"{combat_titles[data]}\n\n"
-            "Choose an option:",
-
-            reply_markup=sport_menu(
-                data,
-                "combat",
             ),
 
             parse_mode="Markdown",
@@ -1832,36 +2257,26 @@ async def button_handler(
 
     # TODAY / NEXT 7
 
-    for prefix, details in SPORT_CONFIG.items():
+    for prefix, config in SPORT_CONFIG.items():
 
-        title = details[0]
-
-        event_function = details[1]
-
-        icon = details[2]
-
-        back_callback = details[3]
-
-
-        if data in (
-
-            f"{prefix}_today",
-
-            f"today_{prefix}",
-
-        ):
+        if data == f"{prefix}_today":
 
             date = get_uk_date()
 
-            events = event_function(date)
+            events = config["function"](
+                date
+            )
 
 
             message = build_today_message(
 
-                title,
+                config["name"],
+
                 events,
+
                 date,
-                icon,
+
+                config["icon"],
 
             )
 
@@ -1874,7 +2289,7 @@ async def button_handler(
 
                 results_menu(
 
-                    back_callback,
+                    prefix,
 
                     f"worldwide_{prefix}_today",
 
@@ -1885,21 +2300,15 @@ async def button_handler(
             return
 
 
-        if data in (
-
-            f"{prefix}_next7",
-
-            f"next7_{prefix}",
-
-        ):
+        if data == f"{prefix}_next7":
 
             message = build_next_7_days_message(
 
-                title,
+                config["name"],
 
-                event_function,
+                config["function"],
 
-                icon,
+                config["icon"],
 
             )
 
@@ -1912,7 +2321,7 @@ async def button_handler(
 
                 results_menu(
 
-                    back_callback,
+                    prefix,
 
                     f"worldwide_{prefix}_next7",
 
@@ -1923,67 +2332,143 @@ async def button_handler(
             return
 
 
-    # WORLDWIDE CHANNELS
+    # WORLDWIDE TODAY / NEXT 7
 
-    if data.startswith("worldwide_"):
+    if data.startswith(
+        "worldwide_"
+    ):
 
-        events = get_events_for_scope(data)
-
-        message = build_worldwide_message(events)
-
-
-        clean_scope = data.replace(
+        clean = data.replace(
             "worldwide_",
             "",
             1,
         )
 
 
-        if clean_scope.startswith(
-            ("premier", "championship")
-        ):
+        if clean.endswith("_today"):
 
-            back_callback = "football"
+            prefix = clean[:-6]
 
 
-        elif clean_scope.startswith(
-            (
-                "rugby_union",
-                "super_league",
-                "nrl",
-            )
-        ):
+            if prefix in SPORT_CONFIG:
 
-            back_callback = "rugby"
+                config = SPORT_CONFIG[
+                    prefix
+                ]
 
 
-        elif clean_scope.startswith(
-            ("ufc", "boxing", "wwe")
-        ):
-
-            back_callback = "combat"
+                events = config["function"](
+                    get_uk_date()
+                )
 
 
-        else:
+                message = build_worldwide_message(
+                    events
+                )
 
-            back_callback = "home"
+
+                await send_long_message(
+
+                    query,
+
+                    message,
+
+                    InlineKeyboardMarkup([
+
+                        [
+                            InlineKeyboardButton(
+                                "◀️ Back",
+                                callback_data=f"{prefix}_today",
+                            ),
+
+                            InlineKeyboardButton(
+                                "🏠 Home",
+                                callback_data="home",
+                            ),
+
+                        ]
+
+                    ]),
+
+                )
+
+                return
 
 
-        await send_long_message(
+        if clean.endswith("_next7"):
 
-            query,
+            prefix = clean[:-6]
 
-            message,
 
-            InlineKeyboardMarkup([
+            if prefix in SPORT_CONFIG:
 
-                navigation_row(back_callback),
+                config = SPORT_CONFIG[
+                    prefix
+                ]
 
-            ]),
+                start_date = datetime.now(
+                    UK_TIMEZONE
+                ).date()
 
-        )
 
-        return
+                events = []
+
+
+                for day_number in range(7):
+
+                    date = (
+
+                        start_date
+
+                        + timedelta(
+                            days=day_number
+                        )
+
+                    ).strftime(
+                        "%Y-%m-%d"
+                    )
+
+
+                    events.extend(
+
+                        config["function"](
+                            date
+                        )
+
+                    )
+
+
+                message = build_worldwide_message(
+                    events
+                )
+
+
+                await send_long_message(
+
+                    query,
+
+                    message,
+
+                    InlineKeyboardMarkup([
+
+                        [
+                            InlineKeyboardButton(
+                                "◀️ Back",
+                                callback_data=f"{prefix}_next7",
+                            ),
+
+                            InlineKeyboardButton(
+                                "🏠 Home",
+                                callback_data="home",
+                            ),
+
+                        ]
+
+                    ]),
+
+                )
+
+                return
 
 
     # MY ALERTS
@@ -1993,13 +2478,18 @@ async def button_handler(
         await query.edit_message_text(
 
             "🔔 **MY ALERTS**\n\n"
-            "Coming soon.\n\n"
-            "Choose your favourite sports and teams "
-            "for personalised alerts.",
+            "This is where personalised alerts will go.\n\n"
+            "⚽ Goals\n"
+            "🏎️ F1 race alerts\n"
+            "🏉 Rugby alerts\n"
+            "🏏 Cricket alerts\n"
+            "🥊 UFC / Boxing / WWE alerts\n\n"
+            "Next step: choosing exactly which "
+            "sports and teams you want alerts for.",
 
             reply_markup=InlineKeyboardMarkup([
 
-                navigation_row("home"),
+                nav_row("home"),
 
             ]),
 
@@ -2017,43 +2507,13 @@ async def button_handler(
         await query.edit_message_text(
 
             "⭐ **MY TEAMS**\n\n"
-            "Coming soon.\n\n"
-            "Save your favourite teams and quickly "
-            "view fixtures and alerts.",
+            "Choose and save your favourite teams.\n\n"
+            "This will later power quick fixtures "
+            "and personalised alerts.",
 
             reply_markup=InlineKeyboardMarkup([
 
-                navigation_row("home"),
-
-            ]),
-
-            parse_mode="Markdown",
-
-        )
-
-        return
-
-
-    # PREMIUM
-
-    if data == "premium":
-
-        await query.edit_message_text(
-
-            "💎 **SPORT PULSE PREMIUM**\n\n"
-
-            "Premium features coming soon:\n\n"
-
-            "🔔 Live alerts\n"
-            "⭐ Favourite teams\n"
-            "⚽ Goal alerts\n"
-            "🏎️ F1 alerts\n"
-            "🥊 Combat alerts\n"
-            "📺 Worldwide TV coverage",
-
-            reply_markup=InlineKeyboardMarkup([
-
-                navigation_row("home"),
+                nav_row("home"),
 
             ]),
 
@@ -2070,20 +2530,23 @@ async def button_handler(
 
         await query.edit_message_text(
 
-            "ℹ️ **HELP**\n\n"
+            "ℹ️ **SPORT PULSE ALERTS**\n\n"
 
-            "Select a sport and competition.\n\n"
+            "Choose a sport and competition.\n\n"
 
             "You can view:\n\n"
 
-            "📅 Today's fixtures\n"
+            "📅 Today's events\n"
             "➡️ Next 7 days\n"
-            "📺 Available TV channels\n"
-            "🌍 Worldwide TV coverage",
+            "📍 Event locations\n"
+            "📺 TV channels\n"
+            "🇬🇧 UK channels prioritised\n"
+            "🌍 Worldwide channels\n"
+            "🔔 Future personalised alerts",
 
             reply_markup=InlineKeyboardMarkup([
 
-                navigation_row("home"),
+                nav_row("home"),
 
             ]),
 
@@ -2117,8 +2580,11 @@ async def error_handler(
 ):
 
     logger.exception(
-        "Exception while handling update:",
+
+        "Unhandled error",
+
         exc_info=context.error,
+
     )
 
 
@@ -2164,7 +2630,7 @@ def main():
 
 
     print(
-        "Sport Pulse Alerts Bot is running..."
+        "Sport Pulse Alerts is running..."
     )
 
 
