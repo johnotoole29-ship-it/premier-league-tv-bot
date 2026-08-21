@@ -548,6 +548,39 @@ def get_sport_events(date, sport):
 
 
 # ============================================================
+# HORSE RACING EVENTS
+# ============================================================
+
+def get_horse_racing_events(date):
+
+    # Try the normal TheSportsDB Horse Racing filter first.
+    events = get_sport_events(date, "Horse Racing")
+
+    if events:
+        return events
+
+    # Fallback: inspect all events for the day in case the API
+    # uses a slightly different Horse Racing label.
+    all_events = get_events_for_day(date)
+    horse_events = []
+
+    for event in all_events:
+
+        sport = (event.get("strSport") or "").lower()
+        league = (event.get("strLeague") or "").lower()
+        event_name = (event.get("strEvent") or "").lower()
+
+        if (
+            "horse" in sport
+            or "horse" in league
+            or "horse racing" in event_name
+        ):
+            horse_events.append(event)
+
+    return horse_events
+
+
+# ============================================================
 # TV CHANNELS
 # ============================================================
 
@@ -1814,7 +1847,7 @@ async def button_handler(
 
         "horse_racing": (
             "Horse Racing",
-            "Horse Racing",
+            None,
             "🏇",
         ),
 
@@ -1846,7 +1879,15 @@ async def button_handler(
 
             date = get_uk_date()
 
-            events = get_sport_events(
+            if prefix == "horse_racing":
+
+                events = get_horse_racing_events(
+                    date
+                )
+
+            else:
+
+                events = get_sport_events(
                 date,
                 sport_name,
             )
@@ -1878,6 +1919,12 @@ async def button_handler(
                 date,
                 selected_sport=sport_name,
             ):
+
+                if prefix == "horse_racing":
+
+                    return get_horse_racing_events(
+                        date
+                    )
 
                 return get_sport_events(
                     date,
