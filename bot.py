@@ -763,4 +763,7 @@ def is_uk_channel(
         "great britain",
     }
 
-    if country in uk
+    if country in uk_names:
+        return True
+
+    return False
