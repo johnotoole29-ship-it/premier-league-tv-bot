@@ -996,4 +996,315 @@ async def start(
         "Select a sport below:"
     )
 
-    await update.message.reply_
+    await update.message.reply_text(
+        text,
+        reply_markup=main_menu(),
+        parse_mode="Markdown",
+    )
+
+
+# ============================================================
+# /today
+# ============================================================
+
+async def today_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    date = get_uk_date()
+
+    matches = get_premier_league_matches(
+        date
+    )
+
+    tv_events = get_tv_events_for_day(
+        date
+    )
+
+    message = create_football_message(
+        date,
+        matches,
+        tv_events,
+    )
+
+    await update.message.reply_text(
+        message,
+        reply_markup=football_menu(),
+        parse_mode="Markdown",
+    )
+
+
+# ============================================================
+# BUTTON HANDLER
+# ============================================================
+
+async def button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    data = query.data
+
+    # --------------------------------------------------------
+    # MAIN SPORTS
+    # --------------------------------------------------------
+
+    if data in SPORTS:
+
+        sport = SPORTS[
+            data
+        ]
+
+        if data == "football":
+
+            await query.edit_message_text(
+                "⚽ **FOOTBALL**\n\n"
+                "What would you like to see?",
+                reply_markup=football_menu(),
+                parse_mode="Markdown",
+            )
+
+        else:
+
+            await query.edit_message_text(
+                f"{sport['name']}\n\n"
+                "What would you like to see?",
+                reply_markup=sport_menu(data),
+                parse_mode="Markdown",
+            )
+
+        return
+
+    # --------------------------------------------------------
+    # FOOTBALL TODAY
+    # --------------------------------------------------------
+
+    if data == "football_today":
+
+        date = get_uk_date()
+
+        matches = get_premier_league_matches(
+            date
+        )
+
+        tv_events = get_tv_events_for_day(
+            date
+        )
+
+        message = create_football_message(
+            date,
+            matches,
+            tv_events,
+        )
+
+        await query.edit_message_text(
+            message,
+            reply_markup=football_menu(),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # FOOTBALL NEXT 7 DAYS
+    # --------------------------------------------------------
+
+    if data == "football_upcoming":
+
+        await query.edit_message_text(
+            "⏳ **Loading Premier League fixtures...**\n\n"
+            "Checking the next 7 days and TV listings.",
+            parse_mode="Markdown",
+        )
+
+        events = get_next_7_days_events(
+            "football"
+        )
+
+        message = create_next_7_days_message(
+            "football",
+            events,
+        )
+
+        await query.edit_message_text(
+            message,
+            reply_markup=football_menu(),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # GENERIC SPORT TODAY
+    # --------------------------------------------------------
+
+    for sport_key in SPORTS:
+
+        if data == f"{sport_key}_today":
+
+            if sport_key == "football":
+                continue
+
+            date = get_uk_date()
+
+            sport_name = SPORTS[
+                sport_key
+            ]["sport"]
+
+            events = get_events_for_day(
+                date=date,
+                sport=sport_name,
+            )
+
+            tv_events = get_tv_events_for_day(
+                date
+            )
+
+            message = create_sport_message(
+                SPORTS[sport_key]["name"],
+                date,
+                events,
+                tv_events,
+            )
+
+            await query.edit_message_text(
+                message,
+                reply_markup=sport_menu(
+                    sport_key
+                ),
+                parse_mode="Markdown",
+            )
+
+            return
+
+    # --------------------------------------------------------
+    # GENERIC SPORT NEXT 7 DAYS
+    # --------------------------------------------------------
+
+    for sport_key in SPORTS:
+
+        if data == f"{sport_key}_upcoming":
+
+            await query.edit_message_text(
+                "⏳ **Loading...**\n\n"
+                "Checking the next 7 days and TV listings.",
+                parse_mode="Markdown",
+            )
+
+            events = get_next_7_days_events(
+                sport_key
+            )
+
+            message = create_next_7_days_message(
+                sport_key,
+                events,
+            )
+
+            await query.edit_message_text(
+                message,
+                reply_markup=sport_menu(
+                    sport_key
+                ),
+                parse_mode="Markdown",
+            )
+
+            return
+
+    # --------------------------------------------------------
+    # BACK
+    # --------------------------------------------------------
+
+    if data == "back":
+
+        await query.edit_message_text(
+            "🔥 **SportPulseAlerts**\n\n"
+            "Select a sport:",
+            reply_markup=main_menu(),
+            parse_mode="Markdown",
+        )
+
+        return
+
+
+# ============================================================
+# ERROR HANDLER
+# ============================================================
+
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    logger.error(
+        "Telegram error:",
+        exc_info=context.error,
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    print(
+        "SportPulseAlerts is starting..."
+    )
+
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .build()
+    )
+
+    # Commands
+
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "today",
+            today_command,
+        )
+    )
+
+    # Buttons
+
+    application.add_handler(
+        CallbackQueryHandler(
+            button_handler
+        )
+    )
+
+    # Errors
+
+    application.add_error_handler(
+        error_handler
+    )
+
+    print(
+        "SportPulseAlerts is running..."
+    )
+
+    application.run_polling(
+        drop_pending_updates=True
+    )
+
+
+# ============================================================
+# START BOT
+# ============================================================
+
+if __name__ == "__main__":
+
+    main()
