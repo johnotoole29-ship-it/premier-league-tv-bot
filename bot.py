@@ -1165,10 +1165,9 @@ def main_menu():
 # ============================================================
 
 def home_text():
-
     return (
         "🔥 **SPORT PULSE ALERTS**\n\n"
-                "👆 Select a sport to get started.\n\n"
+        "👉 Select a sport to get started.\n\n"
         "📺 Find fixtures, TV channels and upcoming events.\n\n"
         "🌍 Use Worldwide Channels to see international broadcasts."
     )
