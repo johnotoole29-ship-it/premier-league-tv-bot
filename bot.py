@@ -764,22 +764,46 @@ def format_tv_channels(
 
     return "\n".join(lines)
 
-
 # ============================================================
-# MATCH TIME
+# MATCH TIME - CONVERT TO UK TIME
 # ============================================================
 
 def format_match_time(event):
 
-    event_time = event.get(
-        "strTime"
-    )
+    event_date = event.get("dateEvent")
+    event_time = event.get("strTime")
 
-    if not event_time:
+    if not event_date or not event_time:
+        return "Time TBC"
 
-        return "TBC"
+    try:
 
-    return event_time[:5]
+        # Remove anything after seconds, if present
+        clean_time = event_time[:8]
+
+        # TheSportsDB times are treated as UTC
+        utc_datetime = datetime.strptime(
+            f"{event_date} {clean_time}",
+            "%Y-%m-%d %H:%M:%S",
+        ).replace(
+            tzinfo=ZoneInfo("UTC")
+        )
+
+        # Convert to UK time automatically
+        uk_datetime = utc_datetime.astimezone(
+            UK_TIMEZONE
+        )
+
+        return uk_datetime.strftime("%H:%M")
+
+    except Exception as error:
+
+        logger.error(
+            "Could not convert match time: %s",
+            error,
+        )
+
+        return event_time[:5]
 
 
 # ============================================================
