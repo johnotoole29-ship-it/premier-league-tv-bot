@@ -100,10 +100,6 @@ def main_menu():
                 "🏏 Cricket",
                 callback_data="cricket",
             ),
-            InlineKeyboardButton(
-                "🏇 Horse Racing",
-                callback_data="horse_racing",
-            ),
         ],
 
         [
@@ -228,6 +224,28 @@ def league_menu(prefix, back_callback):
             InlineKeyboardButton(
                 "➡️ Next 7 Days",
                 callback_data=f"{prefix}_next7",
+            ),
+        ],
+
+        navigation_row(back_callback),
+
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ============================================================
+# RESULTS MENU
+# ============================================================
+
+def results_menu(back_callback, worldwide_callback):
+
+    keyboard = [
+
+        [
+            InlineKeyboardButton(
+                "🌍 Show Worldwide Channels",
+                callback_data=worldwide_callback,
             ),
         ],
 
@@ -548,39 +566,6 @@ def get_sport_events(date, sport):
 
 
 # ============================================================
-# HORSE RACING EVENTS
-# ============================================================
-
-def get_horse_racing_events(date):
-
-    # Try the normal TheSportsDB Horse Racing filter first.
-    events = get_sport_events(date, "Horse Racing")
-
-    if events:
-        return events
-
-    # Fallback: inspect all events for the day in case the API
-    # uses a slightly different Horse Racing label.
-    all_events = get_events_for_day(date)
-    horse_events = []
-
-    for event in all_events:
-
-        sport = (event.get("strSport") or "").lower()
-        league = (event.get("strLeague") or "").lower()
-        event_name = (event.get("strEvent") or "").lower()
-
-        if (
-            "horse" in sport
-            or "horse" in league
-            or "horse racing" in event_name
-        ):
-            horse_events.append(event)
-
-    return horse_events
-
-
-# ============================================================
 # TV CHANNELS
 # ============================================================
 
@@ -811,6 +796,293 @@ def format_tv_channels(
         )
 
     return "\n".join(lines)
+
+
+# ============================================================
+# FORMAT WORLDWIDE CHANNELS
+# ============================================================
+
+def format_worldwide_channels(events):
+
+    channels_by_date = {}
+    seen = set()
+
+    for event in events:
+
+        event_date = event.get("dateEvent")
+
+        if not event_date:
+            continue
+
+        tv_by_event = get_tv_channels_for_date(
+            event_date
+        )
+
+        event_id = str(
+            event.get(
+                "idEvent",
+                "",
+            )
+        )
+
+        channels = clean_tv_channels(
+            tv_by_event.get(
+                event_id,
+                [],
+            )
+        )
+
+        for item in channels:
+
+            channel = item.get(
+                "channel",
+                ""
+            )
+
+            country = item.get(
+                "country",
+                ""
+            )
+
+            key = (
+                event_date,
+                channel.lower(),
+                country.lower(),
+            )
+
+            if not channel or key in seen:
+                continue
+
+            seen.add(key)
+
+            channels_by_date.setdefault(
+                event_date,
+                [],
+            ).append(
+                {
+                    "channel": channel,
+                    "country": country,
+                }
+            )
+
+    if not channels_by_date:
+
+        return (
+            "🌍 **WORLDWIDE TV CHANNELS**\n\n"
+            "No worldwide TV information is currently available."
+        )
+
+    lines = [
+        "🌍 **WORLDWIDE TV CHANNELS**",
+        "",
+    ]
+
+    for event_date in sorted(channels_by_date):
+
+        lines.append(
+            f"📅 **{format_display_date(event_date)}**"
+        )
+        lines.append("")
+
+        grouped = {}
+
+        for item in channels_by_date[event_date]:
+
+            country = (
+                item["country"]
+                or "International"
+            )
+
+            grouped.setdefault(
+                country,
+                [],
+            ).append(
+                item["channel"]
+            )
+
+        for country in sorted(grouped):
+
+            channels = []
+
+            for channel in grouped[country]:
+
+                if channel not in channels:
+                    channels.append(channel)
+
+            lines.append(
+                f"🌍 **{country}**"
+            )
+
+            for channel in channels[:20]:
+
+                lines.append(
+                    f"• {channel}"
+                )
+
+            lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+# ============================================================
+# GET EVENTS FOR WORLDWIDE TV BUTTON
+# ============================================================
+
+def get_events_for_worldwide_scope(scope):
+
+    if scope == "premier_today":
+
+        return get_premier_league_matches(
+            get_uk_date()
+        )
+
+    if scope == "premier_next7":
+
+        events = []
+
+        start = datetime.now(
+            UK_TIMEZONE
+        ).date()
+
+        for day_number in range(7):
+
+            date = (
+                start
+                + timedelta(days=day_number)
+            ).strftime("%Y-%m-%d")
+
+            events.extend(
+                get_premier_league_matches(date)
+            )
+
+        return events
+
+    if scope == "championship_today":
+
+        return get_championship_matches(
+            get_uk_date()
+        )
+
+    if scope == "championship_next7":
+
+        events = []
+
+        start = datetime.now(
+            UK_TIMEZONE
+        ).date()
+
+        for day_number in range(7):
+
+            date = (
+                start
+                + timedelta(days=day_number)
+            ).strftime("%Y-%m-%d")
+
+            events.extend(
+                get_championship_matches(date)
+            )
+
+        return events
+
+    rugby_scopes = {
+
+        "rugby_union": get_rugby_union_events,
+        "super_league": get_super_league_events,
+        "nrl": get_nrl_events,
+
+    }
+
+    if scope.startswith("today_"):
+
+        sport_key = scope.replace(
+            "today_",
+            "",
+            1,
+        )
+
+        sport_map = {
+            "cricket": "Cricket",
+            "tennis": "Tennis",
+            "darts": "Darts",
+            "f1": "Motorsport",
+        }
+
+        if sport_key in sport_map:
+
+            return get_sport_events(
+                get_uk_date(),
+                sport_map[sport_key],
+            )
+
+    if scope.startswith("next7_"):
+
+        sport_key = scope.replace(
+            "next7_",
+            "",
+            1,
+        )
+
+        sport_map = {
+            "cricket": "Cricket",
+            "tennis": "Tennis",
+            "darts": "Darts",
+            "f1": "Motorsport",
+        }
+
+        if sport_key in sport_map:
+
+            events = []
+
+            start = datetime.now(
+                UK_TIMEZONE
+            ).date()
+
+            for day_number in range(7):
+
+                date = (
+                    start
+                    + timedelta(days=day_number)
+                ).strftime("%Y-%m-%d")
+
+                events.extend(
+                    get_sport_events(
+                        date,
+                        sport_map[sport_key],
+                    )
+                )
+
+            return events
+
+    for prefix, event_function in rugby_scopes.items():
+
+        if scope == f"{prefix}_today":
+
+            return event_function(
+                get_uk_date()
+            )
+
+        if scope == f"{prefix}_next7":
+
+            events = []
+
+            start = datetime.now(
+                UK_TIMEZONE
+            ).date()
+
+            for day_number in range(7):
+
+                date = (
+                    start
+                    + timedelta(days=day_number)
+                ).strftime("%Y-%m-%d")
+
+                events.extend(
+                    event_function(date)
+                )
+
+            return events
+
+    return []
 
 
 # ============================================================
@@ -1489,11 +1761,6 @@ async def button_handler(
             "🏏",
         ),
 
-        "horse_racing": (
-            "HORSE RACING",
-            "🏇",
-        ),
-
         "tennis": (
             "TENNIS",
             "🎾",
@@ -1642,9 +1909,9 @@ async def button_handler(
             query,
             message,
 
-            league_menu(
-                "premier",
-                "football",
+            results_menu(
+                "premier_league",
+                "worldwide_premier_today",
             ),
 
         )
@@ -1671,9 +1938,9 @@ async def button_handler(
             query,
             message,
 
-            league_menu(
-                "premier",
-                "football",
+            results_menu(
+                "premier_league",
+                "worldwide_premier_next7",
             ),
 
         )
@@ -1707,9 +1974,9 @@ async def button_handler(
             query,
             message,
 
-            league_menu(
+            results_menu(
                 "championship",
-                "football",
+                "worldwide_championship_today",
             ),
 
         )
@@ -1736,9 +2003,9 @@ async def button_handler(
             query,
             message,
 
-            league_menu(
+            results_menu(
                 "championship",
-                "football",
+                "worldwide_championship_next7",
             ),
 
         )
@@ -1798,9 +2065,9 @@ async def button_handler(
                 query,
                 message,
 
-                league_menu(
+                results_menu(
                     prefix,
-                    "rugby",
+                    f"worldwide_{prefix}_today",
                 ),
 
             )
@@ -1823,9 +2090,9 @@ async def button_handler(
                 query,
                 message,
 
-                league_menu(
+                results_menu(
                     prefix,
-                    "rugby",
+                    f"worldwide_{prefix}_next7",
                 ),
 
             )
@@ -1843,12 +2110,6 @@ async def button_handler(
             "Cricket",
             "Cricket",
             "🏏",
-        ),
-
-        "horse_racing": (
-            "Horse Racing",
-            None,
-            "🏇",
         ),
 
         "tennis": (
@@ -1879,15 +2140,7 @@ async def button_handler(
 
             date = get_uk_date()
 
-            if prefix == "horse_racing":
-
-                events = get_horse_racing_events(
-                    date
-                )
-
-            else:
-
-                events = get_sport_events(
+            events = get_sport_events(
                 date,
                 sport_name,
             )
@@ -1906,7 +2159,10 @@ async def button_handler(
                 query,
                 message,
 
-                sport_menu(prefix),
+                results_menu(
+                    prefix,
+                    f"worldwide_today_{prefix}",
+                ),
 
             )
 
@@ -1919,12 +2175,6 @@ async def button_handler(
                 date,
                 selected_sport=sport_name,
             ):
-
-                if prefix == "horse_racing":
-
-                    return get_horse_racing_events(
-                        date
-                    )
 
                 return get_sport_events(
                     date,
@@ -1944,7 +2194,10 @@ async def button_handler(
                 query,
                 message,
 
-                sport_menu(prefix),
+                results_menu(
+                    prefix,
+                    f"worldwide_next7_{prefix}",
+                ),
 
             )
 
@@ -2180,6 +2433,106 @@ async def button_handler(
 
             parse_mode="Markdown",
         )
+
+        return
+
+
+    # ========================================================
+    # WORLDWIDE TV CHANNELS
+    # ========================================================
+
+    if data.startswith("worldwide_"):
+
+        scope = data.replace(
+            "worldwide_",
+            "",
+            1,
+        )
+
+        await query.edit_message_text(
+            "⏳ Loading worldwide TV channels..."
+        )
+
+        try:
+
+            events = get_events_for_worldwide_scope(
+                scope
+            )
+
+            message = format_worldwide_channels(
+                events
+            )
+
+            back_callback = "back"
+
+            if scope.startswith("premier_"):
+
+                back_callback = "premier_league"
+
+            elif scope.startswith("championship_"):
+
+                back_callback = "championship"
+
+            elif scope.startswith("rugby_union_"):
+
+                back_callback = "rugby_union"
+
+            elif scope.startswith("super_league_"):
+
+                back_callback = "super_league"
+
+            elif scope.startswith("nrl_"):
+
+                back_callback = "nrl"
+
+            elif scope.startswith("today_"):
+
+                back_callback = scope.replace(
+                    "today_",
+                    "",
+                    1,
+                )
+
+            elif scope.startswith("next7_"):
+
+                back_callback = scope.replace(
+                    "next7_",
+                    "",
+                    1,
+                )
+
+            await send_long_message(
+
+                query,
+                message,
+
+                InlineKeyboardMarkup(
+                    [
+                        navigation_row(
+                            back_callback
+                        )
+                    ]
+                ),
+
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Worldwide TV error"
+            )
+
+            await query.edit_message_text(
+
+                "❌ Unable to load worldwide TV channels.",
+
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        navigation_row("home")
+                    ]
+                ),
+
+            )
 
         return
 
