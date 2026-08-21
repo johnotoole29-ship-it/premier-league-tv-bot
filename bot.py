@@ -25,13 +25,6 @@ from telegram.ext import (
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# Your Premium TheSportsDB API key.
-# On Bunny.net set:
-# SPORTSDB_API_KEY=YOUR_PREMIUM_KEY
-#
-# FOOTBALL_API_KEY is also accepted for compatibility
-# with your previous setup.
-
 SPORTSDB_API_KEY = (
     os.getenv("SPORTSDB_API_KEY")
     or os.getenv("FOOTBALL_API_KEY")
@@ -39,9 +32,7 @@ SPORTSDB_API_KEY = (
 
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
-SPORTSDB_BASE = (
-    "https://www.thesportsdb.com/api/v1/json"
-)
+SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 
 PREMIER_LEAGUE_ID = "4328"
 
@@ -59,25 +50,24 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# CHECK CONFIGURATION
+# CONFIG CHECK
 # ============================================================
 
 if not TELEGRAM_TOKEN:
     raise RuntimeError(
         "TELEGRAM_TOKEN is missing. "
-        "Add it to your Bunny.net environment variables."
+        "Add it to Bunny.net environment variables."
     )
 
 if not SPORTSDB_API_KEY:
     raise RuntimeError(
         "SPORTSDB_API_KEY is missing. "
-        "Add your Premium TheSportsDB API key "
-        "to your Bunny.net environment variables."
+        "Add your Premium TheSportsDB API key."
     )
 
 
 # ============================================================
-# THE SPORT MENU
+# MAIN SPORTS
 # ============================================================
 
 SPORT_NAMES = {
@@ -138,6 +128,7 @@ def main_menu():
                 callback_data="f1",
             ),
         ],
+
     ]
 
     return InlineKeyboardMarkup(keyboard)
@@ -219,44 +210,12 @@ def rugby_menu():
 
 
 # ============================================================
-# GENERIC SPORT MENU
+# RUGBY COMPETITION MENU
 # ============================================================
 
-def sport_menu(sport):
-
-    keyboard = [
-
-        [
-            InlineKeyboardButton(
-                "📅 Today",
-                callback_data=f"today_{sport}",
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "➡️ Next 7 Days",
-                callback_data=f"next7_{sport}",
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🔙 Back",
-                callback_data="back",
-            )
-        ],
-
-    ]
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-# ============================================================
-# RUGBY SUB-MENU ACTION
-# ============================================================
-
-def rugby_competition_menu(competition):
+def rugby_competition_menu(
+    competition
+):
 
     keyboard = [
 
@@ -287,6 +246,42 @@ def rugby_competition_menu(competition):
 
 
 # ============================================================
+# GENERIC SPORT MENU
+# ============================================================
+
+def sport_menu(
+    sport
+):
+
+    keyboard = [
+
+        [
+            InlineKeyboardButton(
+                "📅 Today",
+                callback_data=f"today_{sport}",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "➡️ Next 7 Days",
+                callback_data=f"next7_{sport}",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🔙 Back",
+                callback_data="back",
+            )
+        ],
+
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ============================================================
 # UK DATE
 # ============================================================
 
@@ -294,14 +289,18 @@ def get_uk_date():
 
     return datetime.now(
         UK_TIMEZONE
-    ).strftime("%Y-%m-%d")
+    ).strftime(
+        "%Y-%m-%d"
+    )
 
 
 # ============================================================
-# FORMAT DATE FOR TELEGRAM
+# DISPLAY DATE
 # ============================================================
 
-def format_display_date(date_string):
+def format_display_date(
+    date_string
+):
 
     try:
 
@@ -320,10 +319,13 @@ def format_display_date(date_string):
 
 
 # ============================================================
-# API REQUEST
+# THESPORTSDB REQUEST
 # ============================================================
 
-def sportsdb_get(endpoint, params=None):
+def sportsdb_get(
+    endpoint,
+    params=None,
+):
 
     url = (
         f"{SPORTSDB_BASE}/"
@@ -355,7 +357,7 @@ def sportsdb_get(endpoint, params=None):
     except ValueError as error:
 
         logger.error(
-            "TheSportsDB returned invalid JSON: %s",
+            "Invalid JSON returned by TheSportsDB: %s",
             error,
         )
 
@@ -363,7 +365,7 @@ def sportsdb_get(endpoint, params=None):
 
 
 # ============================================================
-# GET EVENTS FOR A DAY
+# EVENTS FOR A DAY
 # ============================================================
 
 def get_events_for_day(
@@ -390,21 +392,18 @@ def get_events_for_day(
     if not data:
         return []
 
-    events = data.get(
+    return data.get(
         "events"
-    )
-
-    if not events:
-        return []
-
-    return events
+    ) or []
 
 
 # ============================================================
-# FILTER PREMIER LEAGUE
+# PREMIER LEAGUE
 # ============================================================
 
-def get_premier_league_matches(date):
+def get_premier_league_matches(
+    date
+):
 
     return get_events_for_day(
         date,
@@ -414,152 +413,11 @@ def get_premier_league_matches(date):
 
 
 # ============================================================
-# FILTER SPORT EVENTS
-# ============================================================
-
-def get_sport_matches(
-    date,
-    sport_name,
-):
-
-    events = get_events_for_day(
-        date,
-        sport=sport_name,
-    )
-
-    return events
-
-
-# ============================================================
-# RUGBY FILTERING
-# ============================================================
-
-def filter_rugby_events(
-    events,
-    competition,
-):
-
-    results = []
-
-    for event in events:
-
-        league = (
-            event.get(
-                "strLeague",
-                "",
-            )
-            or ""
-        ).lower()
-
-        event_name = (
-            event.get(
-                "strEvent",
-                "",
-            )
-            or ""
-        ).lower()
-
-        country = (
-            event.get(
-                "strCountry",
-                "",
-            )
-            or ""
-        ).lower()
-
-        combined = (
-            league
-            + " "
-            + event_name
-            + " "
-            + country
-        )
-
-        if competition == "rugby_union":
-
-            # Rugby Union competitions generally
-            # contain "union" in the league name,
-            # but we also accept common major
-            # union competitions.
-
-            if (
-                "union" in combined
-                or "premiership rugby" in combined
-                or "six nations" in combined
-                or "rugby championship" in combined
-                or "world cup" in combined
-            ):
-                results.append(event)
-
-        elif competition == "rugby_league":
-
-            if (
-                "rugby league" in combined
-                or "super league" in combined
-                or "challenge cup" in combined
-                or "championship" in combined
-            ):
-                results.append(event)
-
-        elif competition == "nrl":
-
-            if (
-                "nrl" in combined
-                or "national rugby league" in combined
-            ):
-                results.append(event)
-
-    return results
-
-
-# ============================================================
-# F1 FILTER
-# ============================================================
-
-def filter_f1_events(events):
-
-    results = []
-
-    for event in events:
-
-        league = (
-            event.get(
-                "strLeague",
-                "",
-            )
-            or ""
-        ).lower()
-
-        event_name = (
-            event.get(
-                "strEvent",
-                "",
-            )
-            or ""
-        ).lower()
-
-        combined = (
-            league
-            + " "
-            + event_name
-        )
-
-        if (
-            "formula 1" in combined
-            or "formula one" in combined
-            or league == "formula 1"
-        ):
-            results.append(event)
-
-    return results
-
-
-# ============================================================
-# GET TV CHANNELS
+# TV CHANNELS
 # ============================================================
 
 def get_tv_channels_for_date(
-    date,
+    date
 ):
 
     data = sportsdb_get(
@@ -582,10 +440,8 @@ def get_tv_channels_for_date(
 
     for broadcast in broadcasts:
 
-        event_id = (
-            broadcast.get(
-                "idEvent"
-            )
+        event_id = broadcast.get(
+            "idEvent"
         )
 
         if not event_id:
@@ -632,11 +488,11 @@ def get_tv_channels_for_date(
 
 
 # ============================================================
-# REMOVE DUPLICATE TV CHANNELS
+# CLEAN TV CHANNELS
 # ============================================================
 
 def clean_tv_channels(
-    channels,
+    channels
 ):
 
     seen = set()
@@ -659,7 +515,7 @@ def clean_tv_channels(
 
 
 # ============================================================
-# FORMAT TV INFORMATION
+# FORMAT TV CHANNELS
 # ============================================================
 
 def format_tv_channels(
@@ -685,16 +541,11 @@ def format_tv_channels(
 
     if not channels:
 
-        return (
-            "📺 TV: Not currently listed"
-        )
+        return "📺 TV: Not currently listed"
 
     lines = [
         "📺 TV:"
     ]
-
-    # Show up to 8 worldwide broadcasts
-    # to keep Telegram messages readable.
 
     for item in channels[:8]:
 
@@ -723,37 +574,26 @@ def format_tv_channels(
 
 
 # ============================================================
-# FORMAT MATCH TIME
+# MATCH TIME
 # ============================================================
 
-def format_match_time(event):
+def format_match_time(
+    event
+):
 
-    event_time = (
-        event.get(
-            "strTime"
-        )
+    event_time = event.get(
+        "strTime"
     )
 
     if not event_time:
 
         return "Time TBC"
 
-    try:
-
-        # TheSportsDB generally returns
-        # HH:MM:SS. Display UK local time.
-
-        time_part = event_time[:5]
-
-        return time_part
-
-    except Exception:
-
-        return "Time TBC"
+    return event_time[:5]
 
 
 # ============================================================
-# CREATE MATCH BLOCK
+# MATCH BLOCK
 # ============================================================
 
 def create_match_block(
@@ -792,34 +632,34 @@ def create_match_block(
 
     return (
         f"🕒 **{time}**\n"
-        f"⚽ **{home_team} vs {away_team}**\n"
+        f"🏆 **{home_team} vs {away_team}**\n"
         f"{tv}\n"
     )
 
 
 # ============================================================
-# CREATE DAILY MESSAGE
+# FOOTBALL TODAY
 # ============================================================
 
-def create_matches_message(
-    date,
-    matches,
-    title,
-):
+def get_football_today():
+
+    date = get_uk_date()
+
+    matches = get_premier_league_matches(
+        date
+    )
 
     if not matches:
 
         return (
-            f"{title}\n\n"
+            "⚽ **PREMIER LEAGUE**\n\n"
             f"📅 {format_display_date(date)}\n\n"
-            "No matches found."
+            "No Premier League matches found."
         )
 
     tv_by_event = get_tv_channels_for_date(
         date
     )
-
-    # Sort by time
 
     matches = sorted(
         matches,
@@ -832,7 +672,7 @@ def create_matches_message(
     )
 
     message = (
-        f"{title}\n\n"
+        "⚽ **PREMIER LEAGUE**\n\n"
         f"📅 {format_display_date(date)}\n\n"
     )
 
@@ -850,26 +690,7 @@ def create_matches_message(
 
 
 # ============================================================
-# GET FOOTBALL FOR TODAY
-# ============================================================
-
-def get_football_today():
-
-    date = get_uk_date()
-
-    matches = get_premier_league_matches(
-        date
-    )
-
-    return create_matches_message(
-        date,
-        matches,
-        "⚽ **PREMIER LEAGUE**",
-    )
-
-
-# ============================================================
-# GET FOOTBALL NEXT 7 DAYS
+# FOOTBALL NEXT 7 DAYS
 # ============================================================
 
 def get_football_next_7_days():
@@ -880,7 +701,7 @@ def get_football_next_7_days():
 
     all_matches = []
 
-    dates = []
+    tv_cache = {}
 
     for day_number in range(7):
 
@@ -893,36 +714,28 @@ def get_football_next_7_days():
             "%Y-%m-%d"
         )
 
-        dates.append(date)
-
         matches = get_premier_league_matches(
             date
         )
 
-        for event in matches:
+        if matches:
 
-            all_matches.append(
-                event
+            all_matches.extend(
+                matches
             )
-
-    if not all_matches:
-
-        return (
-            "⚽ **PREMIER LEAGUE**\n\n"
-            "📅 Next 7 Days\n\n"
-            "No Premier League matches found."
-        )
-
-    # Get TV listings for each date
-
-    tv_cache = {}
-
-    for date in dates:
 
         tv_cache[date] = (
             get_tv_channels_for_date(
                 date
             )
+        )
+
+    if not all_matches:
+
+        return (
+            "⚽ **PREMIER LEAGUE**\n\n"
+            "➡️ **NEXT 7 DAYS**\n\n"
+            "No Premier League matches found."
         )
 
     all_matches = sorted(
@@ -957,23 +770,217 @@ def get_football_next_7_days():
             current_date = event_date
 
             message += (
-                f"\n📅 **{format_display_date(event_date)}**\n\n"
+                f"📅 **{format_display_date(event_date)}**\n\n"
             )
-
-        tv_by_event = tv_cache.get(
-            event_date,
-            {}
-        )
 
         message += (
             create_match_block(
                 event,
-                tv_by_event,
+                tv_cache.get(
+                    event_date,
+                    {},
+                ),
             )
             + "\n"
         )
 
     return message
+
+
+# ============================================================
+# RUGBY UNION FILTER
+# ============================================================
+
+def filter_rugby_union(
+    events
+):
+
+    results = []
+
+    for event in events:
+
+        league = (
+            event.get(
+                "strLeague",
+                "",
+            )
+            or ""
+        ).lower()
+
+        event_name = (
+            event.get(
+                "strEvent",
+                "",
+            )
+            or ""
+        ).lower()
+
+        combined = (
+            league
+            + " "
+            + event_name
+        )
+
+        # Union only.
+        #
+        # Explicitly reject league/NRL.
+        if (
+            "nrl" in combined
+            or "super league" in combined
+            or "rugby league" in combined
+        ):
+            continue
+
+        if (
+            "rugby union" in combined
+            or "premiership rugby" in combined
+            or "six nations" in combined
+            or "rugby championship" in combined
+            or "rugby world cup" in combined
+            or "world rugby" in combined
+        ):
+            results.append(event)
+
+    return results
+
+
+# ============================================================
+# RUGBY LEAGUE = SUPER LEAGUE ONLY
+# ============================================================
+
+def filter_super_league(
+    events
+):
+
+    results = []
+
+    for event in events:
+
+        league = (
+            event.get(
+                "strLeague",
+                "",
+            )
+            or ""
+        ).lower()
+
+        event_name = (
+            event.get(
+                "strEvent",
+                "",
+            )
+            or ""
+        ).lower()
+
+        combined = (
+            league
+            + " "
+            + event_name
+        )
+
+        # IMPORTANT:
+        # Rugby League button is now
+        # SUPER LEAGUE ONLY.
+        #
+        # NRL is explicitly excluded.
+
+        if "nrl" in combined:
+            continue
+
+        if (
+            "super league" in combined
+        ):
+            results.append(event)
+
+    return results
+
+
+# ============================================================
+# NRL ONLY
+# ============================================================
+
+def filter_nrl(
+    events
+):
+
+    results = []
+
+    for event in events:
+
+        league = (
+            event.get(
+                "strLeague",
+                "",
+            )
+            or ""
+        ).lower()
+
+        event_name = (
+            event.get(
+                "strEvent",
+                "",
+            )
+            or ""
+        ).lower()
+
+        combined = (
+            league
+            + " "
+            + event_name
+        )
+
+        # NRL only.
+
+        if (
+            "nrl" in combined
+            or "national rugby league" in combined
+        ):
+            results.append(event)
+
+    return results
+
+
+# ============================================================
+# F1 FILTER
+# ============================================================
+
+def filter_f1(
+    events
+):
+
+    results = []
+
+    for event in events:
+
+        league = (
+            event.get(
+                "strLeague",
+                "",
+            )
+            or ""
+        ).lower()
+
+        event_name = (
+            event.get(
+                "strEvent",
+                "",
+            )
+            or ""
+        ).lower()
+
+        combined = (
+            league
+            + " "
+            + event_name
+        )
+
+        if (
+            "formula 1" in combined
+            or "formula one" in combined
+        ):
+            results.append(event)
+
+    return results
 
 
 # ============================================================
@@ -1002,44 +1009,42 @@ def get_generic_sport_matches(
             "%Y-%m-%d"
         )
 
-        events = []
-
         if sport_key == "basketball":
 
-            events = get_sport_matches(
+            events = get_events_for_day(
                 date,
-                "Basketball",
+                sport="Basketball",
             )
 
         elif sport_key == "cricket":
 
-            events = get_sport_matches(
+            events = get_events_for_day(
                 date,
-                "Cricket",
+                sport="Cricket",
             )
 
         elif sport_key == "tennis":
 
-            events = get_sport_matches(
+            events = get_events_for_day(
                 date,
-                "Tennis",
+                sport="Tennis",
             )
 
         elif sport_key == "darts":
 
-            events = get_sport_matches(
+            events = get_events_for_day(
                 date,
-                "Darts",
+                sport="Darts",
             )
 
         elif sport_key == "f1":
 
-            raw_events = get_sport_matches(
+            raw_events = get_events_for_day(
                 date,
-                "Motorsport",
+                sport="Motorsport",
             )
 
-            events = filter_f1_events(
+            events = filter_f1(
                 raw_events
             )
 
@@ -1049,20 +1054,36 @@ def get_generic_sport_matches(
             "nrl",
         ):
 
-            raw_events = get_sport_matches(
+            raw_events = get_events_for_day(
                 date,
-                "Rugby",
+                sport="Rugby",
             )
 
-            events = filter_rugby_events(
-                raw_events,
-                sport_key,
-            )
+            if sport_key == "rugby_union":
+
+                events = filter_rugby_union(
+                    raw_events
+                )
+
+            elif sport_key == "rugby_league":
+
+                # SUPER LEAGUE ONLY
+                events = filter_super_league(
+                    raw_events
+                )
+
+            else:
+
+                # NRL ONLY
+                events = filter_nrl(
+                    raw_events
+                )
+
+        else:
+
+            events = []
 
         for event in events:
-
-            # Store date explicitly because
-            # some API responses can omit it.
 
             if not event.get(
                 "dateEvent"
@@ -1087,14 +1108,31 @@ def create_generic_sport_message(
 ):
 
     names = {
-        "basketball": "🏀 **BASKETBALL**",
-        "cricket": "🏏 **CRICKET**",
-        "tennis": "🎾 **TENNIS**",
-        "darts": "🎯 **DARTS**",
-        "f1": "🏎️ **FORMULA 1**",
-        "rugby_union": "🏉 **RUGBY UNION**",
-        "rugby_league": "🏉 **RUGBY LEAGUE**",
-        "nrl": "🇦🇺 **NRL**",
+
+        "basketball":
+            "🏀 **BASKETBALL**",
+
+        "cricket":
+            "🏏 **CRICKET**",
+
+        "tennis":
+            "🎾 **TENNIS**",
+
+        "darts":
+            "🎯 **DARTS**",
+
+        "f1":
+            "🏎️ **FORMULA 1**",
+
+        "rugby_union":
+            "🏉 **RUGBY UNION**",
+
+        "rugby_league":
+            "🏉 **RUGBY LEAGUE — SUPER LEAGUE**",
+
+        "nrl":
+            "🇦🇺 **NRL**",
+
     }
 
     title = names.get(
@@ -1123,7 +1161,7 @@ def create_generic_sport_message(
             "No matches/events found."
         )
 
-    # Cache TV information by date
+    # TV cache
 
     tv_cache = {}
 
@@ -1196,7 +1234,7 @@ def create_generic_sport_message(
 
 
 # ============================================================
-# /START
+# START
 # ============================================================
 
 async def start(
@@ -1204,22 +1242,16 @@ async def start(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    message = (
+    await update.message.reply_text(
         "🔥 **SportPulseAlerts**\n\n"
-        "Select a sport:"
+        "Select a sport:",
+        reply_markup=main_menu(),
+        parse_mode="Markdown",
     )
-
-    if update.message:
-
-        await update.message.reply_text(
-            message,
-            reply_markup=main_menu(),
-            parse_mode="Markdown",
-        )
 
 
 # ============================================================
-# /TODAY
+# TODAY COMMAND
 # ============================================================
 
 async def today_command(
@@ -1251,9 +1283,10 @@ async def button_handler(
 
     data = query.data
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # BACK
-    # --------------------------------------------------------
+    # ========================================================
 
     if data == "back":
 
@@ -1266,9 +1299,10 @@ async def button_handler(
 
         return
 
-    # --------------------------------------------------------
-    # MAIN SPORTS
-    # --------------------------------------------------------
+
+    # ========================================================
+    # FOOTBALL
+    # ========================================================
 
     if data == "football":
 
@@ -1280,6 +1314,11 @@ async def button_handler(
         )
 
         return
+
+
+    # ========================================================
+    # BASKETBALL
+    # ========================================================
 
     if data == "basketball":
 
@@ -1294,6 +1333,11 @@ async def button_handler(
 
         return
 
+
+    # ========================================================
+    # CRICKET
+    # ========================================================
+
     if data == "cricket":
 
         await query.edit_message_text(
@@ -1306,6 +1350,11 @@ async def button_handler(
         )
 
         return
+
+
+    # ========================================================
+    # TENNIS
+    # ========================================================
 
     if data == "tennis":
 
@@ -1320,6 +1369,11 @@ async def button_handler(
 
         return
 
+
+    # ========================================================
+    # DARTS
+    # ========================================================
+
     if data == "darts":
 
         await query.edit_message_text(
@@ -1332,6 +1386,11 @@ async def button_handler(
         )
 
         return
+
+
+    # ========================================================
+    # F1
+    # ========================================================
 
     if data == "f1":
 
@@ -1346,9 +1405,10 @@ async def button_handler(
 
         return
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # RUGBY
-    # --------------------------------------------------------
+    # ========================================================
 
     if data == "rugby":
 
@@ -1360,6 +1420,11 @@ async def button_handler(
         )
 
         return
+
+
+    # ========================================================
+    # RUGBY UNION
+    # ========================================================
 
     if data == "rugby_union":
 
@@ -1374,10 +1439,16 @@ async def button_handler(
 
         return
 
+
+    # ========================================================
+    # RUGBY LEAGUE
+    # ========================================================
+
     if data == "rugby_league":
 
         await query.edit_message_text(
             "🏉 **RUGBY LEAGUE**\n\n"
+            "🇬🇧 **SUPER LEAGUE ONLY**\n\n"
             "Choose an option:",
             reply_markup=rugby_competition_menu(
                 "rugby_league"
@@ -1387,10 +1458,16 @@ async def button_handler(
 
         return
 
+
+    # ========================================================
+    # NRL
+    # ========================================================
+
     if data == "nrl":
 
         await query.edit_message_text(
             "🇦🇺 **NRL**\n\n"
+            "Australian NRL fixtures only.\n\n"
             "Choose an option:",
             reply_markup=rugby_competition_menu(
                 "nrl"
@@ -1400,14 +1477,15 @@ async def button_handler(
 
         return
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # FOOTBALL TODAY
-    # --------------------------------------------------------
+    # ========================================================
 
     if data == "football_today":
 
         await query.edit_message_text(
-            "⏳ Loading Premier League fixtures...",
+            "⏳ Loading Premier League fixtures..."
         )
 
         try:
@@ -1420,28 +1498,28 @@ async def button_handler(
                 parse_mode="Markdown",
             )
 
-        except Exception as error:
+        except Exception:
 
             logger.exception(
                 "Football today error"
             )
 
             await query.edit_message_text(
-                "❌ Sorry, there was a problem "
-                "getting the football fixtures.",
+                "❌ Unable to load football fixtures.",
                 reply_markup=football_menu(),
             )
 
         return
 
-    # --------------------------------------------------------
-    # FOOTBALL NEXT 7 DAYS
-    # --------------------------------------------------------
+
+    # ========================================================
+    # FOOTBALL NEXT 7
+    # ========================================================
 
     if data == "football_next7":
 
         await query.edit_message_text(
-            "⏳ Loading the next 7 days...",
+            "⏳ Loading the next 7 days..."
         )
 
         try:
@@ -1454,23 +1532,23 @@ async def button_handler(
                 parse_mode="Markdown",
             )
 
-        except Exception as error:
+        except Exception:
 
             logger.exception(
                 "Football next 7 error"
             )
 
             await query.edit_message_text(
-                "❌ Sorry, there was a problem "
-                "getting the next 7 days.",
+                "❌ Unable to load the next 7 days.",
                 reply_markup=football_menu(),
             )
 
         return
 
-    # --------------------------------------------------------
-    # GENERIC SPORT TODAY
-    # --------------------------------------------------------
+
+    # ========================================================
+    # GENERIC TODAY
+    # ========================================================
 
     if data.startswith("today_"):
 
@@ -1497,7 +1575,7 @@ async def button_handler(
             )
 
         await query.edit_message_text(
-            "⏳ Loading fixtures...",
+            "⏳ Loading fixtures..."
         )
 
         try:
@@ -1513,23 +1591,23 @@ async def button_handler(
                 parse_mode="Markdown",
             )
 
-        except Exception as error:
+        except Exception:
 
             logger.exception(
                 "Sport today error"
             )
 
             await query.edit_message_text(
-                "❌ Sorry, there was a problem "
-                "getting the fixtures.",
+                "❌ Unable to load fixtures.",
                 reply_markup=keyboard,
             )
 
         return
 
-    # --------------------------------------------------------
-    # GENERIC SPORT NEXT 7 DAYS
-    # --------------------------------------------------------
+
+    # ========================================================
+    # GENERIC NEXT 7
+    # ========================================================
 
     if data.startswith("next7_"):
 
@@ -1556,7 +1634,7 @@ async def button_handler(
             )
 
         await query.edit_message_text(
-            "⏳ Loading the next 7 days...",
+            "⏳ Loading the next 7 days..."
         )
 
         try:
@@ -1572,23 +1650,23 @@ async def button_handler(
                 parse_mode="Markdown",
             )
 
-        except Exception as error:
+        except Exception:
 
             logger.exception(
                 "Sport next 7 error"
             )
 
             await query.edit_message_text(
-                "❌ Sorry, there was a problem "
-                "getting the next 7 days.",
+                "❌ Unable to load the next 7 days.",
                 reply_markup=keyboard,
             )
 
         return
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # UNKNOWN BUTTON
-    # --------------------------------------------------------
+    # ========================================================
 
     await query.edit_message_text(
         "❌ Unknown option.",
@@ -1601,7 +1679,7 @@ async def button_handler(
 # ============================================================
 
 async def error_handler(
-    update: object,
+    update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
@@ -1613,7 +1691,7 @@ async def error_handler(
 
 
 # ============================================================
-# MAIN
+# START BOT
 # ============================================================
 
 def main():
@@ -1627,8 +1705,6 @@ def main():
         .token(TELEGRAM_TOKEN)
         .build()
     )
-
-    # Commands
 
     application.add_handler(
         CommandHandler(
@@ -1644,15 +1720,11 @@ def main():
         )
     )
 
-    # Buttons
-
     application.add_handler(
         CallbackQueryHandler(
             button_handler
         )
     )
-
-    # Errors
 
     application.add_error_handler(
         error_handler
@@ -1668,8 +1740,9 @@ def main():
 
 
 # ============================================================
-# START BOT
+# RUN
 # ============================================================
 
 if __name__ == "__main__":
+
     main()
