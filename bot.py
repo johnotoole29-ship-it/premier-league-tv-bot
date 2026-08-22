@@ -34,7 +34,6 @@ TIMEZONE = ZoneInfo("Europe/London")
 
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 
-# Premier League
 PREMIER_LEAGUE_ID = "4328"
 
 
@@ -87,14 +86,21 @@ def sportsdb_get(endpoint, params=None):
 
         response.raise_for_status()
 
-        data = response.json()
+        return response.json()
 
-        return data
+    except requests.RequestException as error:
 
-    except Exception as error:
+        logger.error(
+            "SportsDB request failed: %s",
+            error,
+        )
 
-        logger.exception(
-            "SportsDB error: %s",
+        return None
+
+    except ValueError as error:
+
+        logger.error(
+            "SportsDB returned invalid JSON: %s",
             error,
         )
 
@@ -102,7 +108,7 @@ def sportsdb_get(endpoint, params=None):
 
 
 # ============================================================
-# UK DATE / TIME
+# UK DATE
 # ============================================================
 
 def uk_now():
@@ -110,16 +116,16 @@ def uk_now():
     return datetime.now(TIMEZONE)
 
 
-def uk_date():
+def date_from_offset(offset):
 
-    return uk_now().strftime("%Y-%m-%d")
+    date = (
+        uk_now().date()
+        + timedelta(days=offset)
+    )
 
-
-def date_from_offset(days):
-
-    date = uk_now().date() + timedelta(days=days)
-
-    return date.strftime("%Y-%m-%d")
+    return date.strftime(
+        "%Y-%m-%d"
+    )
 
 
 def display_date(date_string):
@@ -147,13 +153,8 @@ def display_date(date_string):
 def get_premier_league_fixtures(date_string):
 
     """
-    Get fixtures for one specific date.
-
-    We deliberately retrieve Soccer fixtures for the date
-    and then ONLY keep Premier League matches.
-
-    This prevents the bot from dumping hundreds of
-    unrelated football fixtures.
+    Get ONLY Premier League fixtures
+    for the requested date.
     """
 
     data = sportsdb_get(
@@ -168,9 +169,11 @@ def get_premier_league_fixtures(date_string):
 
         return []
 
-    events = data.get("events") or []
+    events = data.get(
+        "events"
+    ) or []
 
-    results = []
+    fixtures = []
 
     for event in events:
 
@@ -181,11 +184,9 @@ def get_premier_league_fixtures(date_string):
 
         if league == "english premier league":
 
-            results.append(event)
+            fixtures.append(event)
 
-    # Sort by time
-
-    results.sort(
+    fixtures.sort(
         key=lambda event: (
             event.get("strTime")
             or event.get("strEventTime")
@@ -193,36 +194,184 @@ def get_premier_league_fixtures(date_string):
         )
     )
 
-    return results
+    return fixtures
 
 
 # ============================================================
-# NEXT PREMIER LEAGUE FIXTURES
+# UK TV LISTINGS
 # ============================================================
 
-def get_next_premier_league():
+def get_uk_tv_for_date(date_string):
 
     """
-    Get upcoming Premier League matches.
+    Get UK TV listings for a specific date.
 
-    This is used as a fallback if the requested day
-    has no fixtures.
+    TheSportsDB supports filtering TV events by:
+        d = date
+        a = country
+        s = sport
     """
 
     data = sportsdb_get(
-        "eventsnextleague.php",
+        "eventstv.php",
         {
-            "id": PREMIER_LEAGUE_ID,
+            "d": date_string,
+            "a": "United Kingdom",
+            "s": "Soccer",
         },
     )
 
     if not data:
 
+        logger.warning(
+            "No TV data returned for %s",
+            date_string,
+        )
+
+        return {}
+
+    tv_events = (
+        data.get("tvevents")
+        or data.get("events")
+        or []
+    )
+
+    tv_by_event = {}
+
+    for item in tv_events:
+
+        event_id = (
+            item.get("idEvent")
+            or item.get("id")
+        )
+
+        if not event_id:
+            continue
+
+        channel = (
+            item.get("strChannel")
+            or item.get("strName")
+            or item.get("strEvent")
+        )
+
+        country = (
+            item.get("strCountry")
+            or item.get("strLocation")
+            or ""
+        )
+
+        if not channel:
+            continue
+
+        event_id = str(event_id)
+
+        tv_by_event.setdefault(
+            event_id,
+            [],
+        )
+
+        tv_by_event[event_id].append(
+            {
+                "channel": str(
+                    channel
+                ).strip(),
+
+                "country": str(
+                    country
+                ).strip(),
+            }
+        )
+
+    return tv_by_event
+
+
+# ============================================================
+# CLEAN TV CHANNELS
+# ============================================================
+
+def clean_channels(channels):
+
+    seen = set()
+
+    result = []
+
+    for item in channels:
+
+        channel = (
+            item.get("channel")
+            or ""
+        ).strip()
+
+        if not channel:
+            continue
+
+        key = channel.lower()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        result.append(channel)
+
+    return result
+
+
+# ============================================================
+# GET TV FOR ONE MATCH
+# ============================================================
+
+def get_tv_for_event(event, tv_by_event):
+
+    event_id = event.get(
+        "idEvent"
+    )
+
+    if not event_id:
+
         return []
 
-    events = data.get("events") or []
+    event_id = str(event_id)
 
-    return events
+    channels = tv_by_event.get(
+        event_id,
+        [],
+    )
+
+    return clean_channels(
+        channels
+    )
+
+
+# ============================================================
+# FORMAT TV
+# ============================================================
+
+def format_tv(event, tv_by_event):
+
+    channels = get_tv_for_event(
+        event,
+        tv_by_event,
+    )
+
+    if not channels:
+
+        return (
+            "📺 **UK TV:** "
+            "Not currently listed"
+        )
+
+    lines = [
+        "📺 **UK TV:**"
+    ]
+
+    for channel in channels[:6]:
+
+        lines.append(
+            f"• {channel}"
+        )
+
+    return "\n".join(lines)
 
 
 # ============================================================
@@ -240,47 +389,24 @@ def match_time(event):
 
         return "TBC"
 
-    try:
-
-        return value[:5]
-
-    except Exception:
-
-        return "TBC"
+    return value[:5]
 
 
 # ============================================================
-# MATCH TEXT
-# ============================================================
-
-def fixture_line(number, event):
-
-    home = (
-        event.get("strHomeTeam")
-        or "Home"
-    )
-
-    away = (
-        event.get("strAwayTeam")
-        or "Away"
-    )
-
-    time = match_time(event)
-
-    return (
-        f"{number}. "
-        f"**{time}** — "
-        f"{home} vs {away}"
-    )
-
-
-# ============================================================
-# FIXTURE PAGE
+# BUILD FIXTURE TEXT
 # ============================================================
 
 def build_fixture_page(date_string):
 
     fixtures = get_premier_league_fixtures(
+        date_string
+    )
+
+    # Get UK TV listings ONCE for this date.
+    # This is important so we don't make a TV API
+    # request for every single fixture.
+
+    tv_by_event = get_uk_tv_for_date(
         date_string
     )
 
@@ -316,14 +442,33 @@ def build_fixture_page(date_string):
         start=1,
     ):
 
+        home = (
+            event.get("strHomeTeam")
+            or "Home"
+        )
+
+        away = (
+            event.get("strAwayTeam")
+            or "Away"
+        )
+
+        time = match_time(event)
+
         lines.append(
-            fixture_line(
-                index,
+            f"**{index}. {time} — "
+            f"{home} vs {away}**"
+        )
+
+        lines.append(
+            format_tv(
                 event,
+                tv_by_event,
             )
         )
 
-    return "\n".join(lines)
+        lines.append("")
+
+    return "\n".join(lines).strip()
 
 
 # ============================================================
@@ -402,21 +547,21 @@ def day_menu(offset):
 
 
 # ============================================================
-# HOME MESSAGE
+# HOME
 # ============================================================
 
 def home_text():
 
     return (
         "🔥 **SPORT PULSE ALERTS**\n\n"
-        "⚽ **Football Fixtures**\n\n"
-        "Choose what you want to see below.\n\n"
-        "🇬🇧 Times are shown in UK time."
+        "⚽ **Premier League Fixtures**\n\n"
+        "📺 UK TV channels included\n\n"
+        "🇬🇧 All times are UK time."
     )
 
 
 # ============================================================
-# START COMMAND
+# START
 # ============================================================
 
 async def start(
@@ -432,7 +577,7 @@ async def start(
 
 
 # ============================================================
-# SHOW A DAY
+# SHOW DAY
 # ============================================================
 
 async def show_day(
@@ -486,10 +631,15 @@ async def show_next_7_days(query):
         )
 
         if not fixtures:
-
             continue
 
         found = True
+
+        # TV listings for this particular date
+
+        tv_by_event = get_uk_tv_for_date(
+            date_string
+        )
 
         lines.append(
             f"📅 **{display_date(date_string)}**"
@@ -513,6 +663,27 @@ async def show_next_7_days(query):
                 f"• **{time}** — "
                 f"{home} vs {away}"
             )
+
+            tv_channels = get_tv_for_event(
+                event,
+                tv_by_event,
+            )
+
+            if tv_channels:
+
+                lines.append(
+                    "  📺 **UK TV:** "
+                    + ", ".join(
+                        tv_channels[:4]
+                    )
+                )
+
+            else:
+
+                lines.append(
+                    "  📺 **UK TV:** "
+                    "Not currently listed"
+                )
 
         lines.append("")
 
@@ -542,7 +713,7 @@ async def show_next_7_days(query):
 
 
 # ============================================================
-# CALLBACK HANDLER
+# BUTTON HANDLER
 # ============================================================
 
 async def button_handler(
@@ -556,9 +727,7 @@ async def button_handler(
 
     data = query.data
 
-    # --------------------------------------------------------
     # HOME
-    # --------------------------------------------------------
 
     if data == "home":
 
@@ -570,9 +739,7 @@ async def button_handler(
 
         return
 
-    # --------------------------------------------------------
-    # TODAY / TOMORROW / DAY NAVIGATION
-    # --------------------------------------------------------
+    # DAY
 
     if data.startswith("day:"):
 
@@ -586,15 +753,12 @@ async def button_handler(
 
             offset = 0
 
-        # Prevent accidentally going too far backwards
+        # Keep navigation sensible
 
-        if offset < -30:
-            offset = -30
-
-        # And don't allow absurdly large requests
-
-        if offset > 30:
-            offset = 30
+        offset = max(
+            -30,
+            min(offset, 30)
+        )
 
         await show_day(
             query,
@@ -603,9 +767,7 @@ async def button_handler(
 
         return
 
-    # --------------------------------------------------------
     # NEXT 7 DAYS
-    # --------------------------------------------------------
 
     if data == "next7":
 
@@ -615,16 +777,12 @@ async def button_handler(
 
         return
 
-    # --------------------------------------------------------
     # REFRESH
-    # --------------------------------------------------------
 
     if data == "refresh":
 
-        date_string = uk_date()
-
         text = build_fixture_page(
-            date_string
+            date_from_offset(0)
         )
 
         await query.edit_message_text(
@@ -641,8 +799,8 @@ async def button_handler(
 # ============================================================
 
 async def error_handler(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE,
+    update,
+    context,
 ):
 
     logger.exception(
@@ -668,8 +826,6 @@ def main():
         .build()
     )
 
-    # Commands
-
     application.add_handler(
         CommandHandler(
             "start",
@@ -677,15 +833,11 @@ def main():
         )
     )
 
-    # Buttons
-
     application.add_handler(
         CallbackQueryHandler(
             button_handler
         )
     )
-
-    # Errors
 
     application.add_error_handler(
         error_handler
