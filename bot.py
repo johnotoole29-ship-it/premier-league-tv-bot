@@ -206,6 +206,24 @@ async def live_now_handler(
     )
 
 
+async def callback_router(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+
+    if not query:
+        return
+
+    data = query.data or ""
+
+    if data == "live_now":
+        await live_now_handler(update, context)
+        return
+
+    await bot_core.button_handler(update, context)
+
+
 # ============================================================
 # PRIVATE GROUP-AD PREVIEW
 # ============================================================
@@ -280,14 +298,7 @@ def main():
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            live_now_handler,
-            pattern=r"^live_now$",
-        )
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(bot_core.button_handler)
+        CallbackQueryHandler(callback_router)
     )
 
     application.add_error_handler(
