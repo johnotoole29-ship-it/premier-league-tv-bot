@@ -55,7 +55,13 @@ _original_build_home_page = bot_core.build_home_page
 
 def build_home_page_with_live():
     text, keyboard = _original_build_home_page()
-    rows = [[InlineKeyboardButton("🔴 LIVE NOW", callback_data="live:menu")], *keyboard.inline_keyboard]
+    # Keep TV/broadcaster information on individual fixtures, but remove
+    # the standalone TV & Streaming Guide button from the home screen.
+    home_rows = [
+        row for row in keyboard.inline_keyboard
+        if not any(button.callback_data == "menu:channels" for button in row)
+    ]
+    rows = [[InlineKeyboardButton("🔴 LIVE NOW", callback_data="live:menu")], *home_rows]
     return text, InlineKeyboardMarkup(rows)
 
 
@@ -137,7 +143,6 @@ def build_live_overview():
         "━━━━━━━━━━━━━━━━━━━━",
         "Live scores across all supported football leagues.",
     ]
-
     if events is None:
         lines.extend(["", "⚠️ Live scores are temporarily unavailable."])
     else:
@@ -153,7 +158,6 @@ def build_live_overview():
                 lines.extend(["", f"{icon} <b>{html.escape(league_name)}</b>"])
                 for event in league_events:
                     lines.append(event_score_line(event))
-
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🏴 Premier League", callback_data="live:league:4328"), InlineKeyboardButton("🏴 Championship", callback_data="live:league:4329")],
         [InlineKeyboardButton("🇪🇸 La Liga", callback_data="live:league:4335"), InlineKeyboardButton("🇮🇹 Serie A", callback_data="live:league:4332")],
@@ -295,11 +299,8 @@ def build_match_centre(event_id, league_id):
         home_score = "–" if hs in (None, "") else html.escape(str(hs))
         away_score = "–" if as_ in (None, "") else html.escape(str(as_))
         lines = [
-            "🏟️ <b>MATCH CENTRE</b>",
-            "━━━━━━━━━━━━━━━━━━━━",
-            f"🏆 {html.escape(league_name)}",
-            f"⏱ {progress}",
-            "",
+            "🏟️ <b>MATCH CENTRE</b>", "━━━━━━━━━━━━━━━━━━━━",
+            f"🏆 {html.escape(league_name)}", f"⏱ {progress}", "",
             f"🏠 <b>{home}</b>   <b>{home_score}</b>",
         ]
         if home_goals:
