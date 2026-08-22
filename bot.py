@@ -110,7 +110,7 @@ def fetch_events(date_value, category):
         lname = str(e.get("strLeague") or "").lower()
         
         if category == "football":
-            if lid == "4328": # Strict Premier League filter
+            if lid == "4328":
                 filtered.append(e)
                 
         elif category == "nrl":
@@ -122,7 +122,6 @@ def fetch_events(date_value, category):
                 filtered.append(e)
                 
         elif category == "union":
-            # Exclude NRL and Super League IDs to ensure it is purely Union or international Rugby
             if lid not in ["4415", "4416"] and "nrl" not in lname and "super league" not in lname:
                 filtered.append(e)
                 
@@ -191,7 +190,7 @@ def parse_uk_time(event):
         return fallback
 
 # ============================================================
-# UI VIEWS (PREMIUM UPGRADE)
+# UI VIEWS
 # ============================================================
 
 def build_home_page():
@@ -270,7 +269,6 @@ def build_combat_menu():
     return text, kb
 
 def build_channels_page():
-    # Format the channels into a sleek grid-like string
     channel_list = ", ".join(f"<b>{c.title()}</b>" for c in MY_CHANNELS)
     text = (
         "⚙️ <b>SYSTEM CONFIGURATION</b>\n"
@@ -293,8 +291,6 @@ def build_fixtures_page(date_value, category):
         return "❌ <b>Error:</b> Unknown category.", InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu:home")]])
         
     events = fetch_events(date_value, category)
-    tv_data = get_tv_channels(date_value, meta["sport"])
-    
     events.sort(key=parse_uk_time)
     
     text = (
@@ -303,10 +299,15 @@ def build_fixtures_page(date_value, category):
         "━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     
+    kb_buttons = []
+    
     if not events:
-        text += f"<blockquote>❌ <i>No {meta['title']} events scheduled for this date.</i></blockquote>\n\n"
+        text += f"<blockquote>❌ <i>No {meta['title']} events scheduled for this date.</i></blockquote>\n"
     else:
-        for idx, event in enumerate(events, 1):
+        text += "<i>Tap a match below to open the Match Center and view live broadcast feeds.</i>\n"
+        
+        # Build a button for every match
+        for event in events:
             home = html.escape(str(event.get("strHomeTeam") or ""))
             away = html.escape(str(event.get("strAwayTeam") or ""))
             
@@ -319,25 +320,15 @@ def build_fixtures_page(date_value, category):
             time_str = dt.strftime("%H:%M") if dt.year != 2099 else "TBC"
             
             event_id = str(event.get("idEvent", ""))
-            channels = tv_data.get(event_id, [])
             
-            # Compress channels into a sleek inline list instead of a massive vertical wall
-            if not channels:
-                tv_text = "📺 <i>No feeds currently listed</i>"
-            else:
-                visible_channels = [html.escape(c) for c in channels[:4]]
-                tv_text = f"📺 <b>Feeds:</b> {', '.join(visible_channels)}"
-                if len(channels) > 4:
-                    tv_text += f" <i>(+{len(channels)-4})</i>"
+            # Format the button text (e.g., "[15:00] Arsenal vs Chelsea")
+            btn_text = f"[{time_str}] {match_title}"
             
-            # Wrap the match details in a blockquote to create a "UI Card" effect
-            text += (
-                f"<b>{idx}. {match_title}</b>\n"
-                f"<blockquote>"
-                f"⏰ <b>Kick-off:</b> {time_str} UK\n"
-                f"{tv_text}"
-                f"</blockquote>\n"
-            )
+            # Ensure the text isn't too long for Telegram's mobile view
+            if len(btn_text) > 40:
+                btn_text = btn_text[:37] + "..."
+                
+            kb_buttons.append([InlineKeyboardButton(btn_text, callback_data=f"match:{event_id}:{date_string(date_value)}:{category}")])
             
     today_str = date_string(datetime.now(UK_TIMEZONE).date())
     prev_day_str = date_string(date_value - timedelta(days=1))
@@ -349,20 +340,69 @@ def build_fixtures_page(date_value, category):
     elif category in ["ufc", "boxing", "wwe"]:
         back_target = "menu:combat"
         
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{prev_day_str}:{category}"),
-            InlineKeyboardButton("📅 Today", callback_data=f"date:{today_str}:{category}"),
-            InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{next_day_str}:{category}")
-        ],
-        [
-            InlineKeyboardButton("🔄 Refresh Feeds", callback_data=f"date:{date_string(date_value)}:{category}"),
-            InlineKeyboardButton("⬅️ Back", callback_data=back_target)
-        ]
+    # Add navigation controls to the bottom
+    kb_buttons.append([
+        InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{prev_day_str}:{category}"),
+        InlineKeyboardButton("📅 Today", callback_data=f"date:{today_str}:{category}"),
+        InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{next_day_str}:{category}")
+    ])
+    kb_buttons.append([
+        InlineKeyboardButton("🔄 Refresh List", callback_data=f"date:{date_string(date_value)}:{category}"),
+        InlineKeyboardButton("⬅️ Back", callback_data=back_target)
     ])
     
-    return text, kb
+    return text, InlineKeyboardMarkup(kb_buttons)
+
+def build_match_details_page(event_id, date_value, category):
+    meta = CATEGORIES.get(category)
+    if not meta:
+        return "❌ <b>Error:</b> Unknown category.", InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu:home")]])
+
+    events = fetch_events(date_value, category)
     
+    # Locate the specific match in the day's data
+    event = next((e for e in events if str(e.get("idEvent")) == event_id), None)
+
+    if not event:
+        text = "❌ <i>Match data is no longer available.</i>"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Matches", callback_data=f"date:{date_string(date_value)}:{category}")]])
+        return text, kb
+
+    home = html.escape(str(event.get("strHomeTeam") or ""))
+    away = html.escape(str(event.get("strAwayTeam") or ""))
+
+    if not home or not away or home == "None" or away == "None":
+        match_title = html.escape(str(event.get("strEvent") or "TBA Match"))
+    else:
+        match_title = f"{home} vs {away}"
+
+    dt = parse_uk_time(event)
+    time_str = dt.strftime("%H:%M") if dt.year != 2099 else "TBC"
+
+    # Fetch TV channels specifically for this match
+    tv_data = get_tv_channels(date_value, meta["sport"])
+    channels = tv_data.get(event_id, [])
+
+    text = (
+        f"{meta['icon']} <b>MATCH CENTER</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🏆 <b>Event:</b> {match_title}\n"
+        f"📅 <b>Date:</b> {pretty_date(date_value)}\n"
+        f"⏰ <b>Kick-off:</b> {time_str} UK\n\n"
+    )
+
+    if not channels:
+        text += "<blockquote>📺 <i>No supported app feeds are currently listed for this event.</i></blockquote>"
+    else:
+        channel_text = "\n".join(f"• {html.escape(c)}" for c in channels)
+        text += f"📺 <b>Supported Broadcast Feeds:</b>\n<blockquote>{channel_text}</blockquote>"
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Back to Matches", callback_data=f"date:{date_string(date_value)}:{category}")],
+        [InlineKeyboardButton("🏠 Main Menu", callback_data="menu:home")]
+    ])
+
+    return text, kb
 
 # ============================================================
 # HANDLERS
@@ -398,6 +438,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
 
+        # Shows the list of matches as buttons
         if data.startswith("date:"):
             parts = data.split(":")
             date_str = parts[1]
@@ -405,6 +446,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
             text, kb = build_fixtures_page(target_date, category)
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+            return
+            
+        # Opens the Match Center for a specific game
+        if data.startswith("match:"):
+            parts = data.split(":")
+            event_id = parts[1]
+            date_str = parts[2]
+            category = parts[3]
+            
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            text, kb = build_match_details_page(event_id, target_date, category)
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
 
@@ -430,9 +483,8 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
-    logger.info("Bot starting with expanded subfolders...")
+    logger.info("Bot starting with Premium Match Center UI...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
-    
