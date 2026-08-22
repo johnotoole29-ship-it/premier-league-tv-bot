@@ -1,7 +1,10 @@
 import os
 import logging
+import threading
+import html
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import requests
 
@@ -10,7 +13,6 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -20,7 +22,7 @@ from telegram.ext import (
 
 
 # ============================================================
-# CONFIG
+# CONFIG & TIMEZONE
 # ============================================================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -28,6 +30,8 @@ SPORTSDB_API_KEY = os.getenv("SPORTSDB_API_KEY")
 
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 
+# Note: Your container MUST have the 'tzdata' package installed 
+# for ZoneInfo to work on Linux.
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
 
@@ -39,7 +43,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
-
 logger = logging.getLogger("SportPulse")
 
 
@@ -47,17 +50,33 @@ logger = logging.getLogger("SportPulse")
 # CHECK ENVIRONMENT VARIABLES
 # ============================================================
 
-if not TELEGRAM_TOKEN:
+if not TELEGRAM_TOKEN or not SPORTSDB_API_KEY:
     raise RuntimeError(
-        "TELEGRAM_TOKEN is missing. "
-        "Add TELEGRAM_TOKEN to Bunny.net Environment Variables."
+        "Missing TELEGRAM_TOKEN or SPORTSDB_API_KEY. "
+        "Check your Bunny.net environment variables."
     )
 
-if not SPORTSDB_API_KEY:
-    raise RuntimeError(
-        "SPORTSDB_API_KEY is missing. "
-        "Add SPORTSDB_API_KEY to Bunny.net Environment Variables."
-    )
+
+# ============================================================
+# BUNNY.NET HEALTH CHECK SERVER
+# ============================================================
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running and healthy!")
+        
+    def log_message(self, format, *args):
+        # Suppress logging to keep console clean
+        pass
+
+def start_health_server():
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info("Health check server listening on port %s", port)
+    server.serve_forever()
 
 
 # ============================================================
@@ -70,16 +89,13 @@ def sportsdb_get(endpoint, params=None):
         response = requests.get(url, params=params or {}, timeout=20)
         response.raise_for_status()
         return response.json()
-    except requests.RequestException as error:
+    except (requests.RequestException, ValueError) as error:
         logger.error("SportsDB request failed: %s", error)
-        return None
-    except ValueError as error:
-        logger.error("SportsDB returned invalid JSON: %s", error)
         return None
 
 
 # ============================================================
-# UK DATE
+# DATE & TIME HELPERS
 # ============================================================
 
 def uk_now():
@@ -94,40 +110,25 @@ def date_string(date_value):
 def pretty_date(date_value):
     return date_value.strftime("%A %d %B %Y")
 
-
-# ============================================================
-# CONVERT SPORTSDB TIME
-# ============================================================
-
 def event_datetime_uk(event):
-    # --------------------------------------------------------
-    # Best option: SportsDB strTimestamp
-    # --------------------------------------------------------
     timestamp = event.get("strTimestamp")
 
     if timestamp:
         try:
-            # Unix timestamp
             if str(timestamp).isdigit():
                 utc_time = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
                 return utc_time.astimezone(UK_TIMEZONE)
 
-            # ISO timestamp
             cleaned = str(timestamp).replace("Z", "+00:00")
             parsed = datetime.fromisoformat(cleaned)
 
-            # If SportsDB doesn't include timezone, treat it as UTC.
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
 
             return parsed.astimezone(UK_TIMEZONE)
-
         except Exception as error:
             logger.warning("Could not parse strTimestamp %s: %s", timestamp, error)
 
-    # --------------------------------------------------------
-    # Fallback: SportsDB strTime is UTC
-    # --------------------------------------------------------
     date_value = event.get("dateEvent") or event.get("dateEventLocal")
     time_value = event.get("strTime") or event.get("strEventTime") or "00:00:00"
 
@@ -143,65 +144,32 @@ def event_datetime_uk(event):
             f"{date_value} {clean_time}",
             "%Y-%m-%d %H:%M:%S",
         ).replace(tzinfo=timezone.utc)
-
         return utc_datetime.astimezone(UK_TIMEZONE)
-
     except Exception as error:
-        logger.warning("Could not convert event time: %s", error)
         return None
 
 
 # ============================================================
-# GET FOOTBALL FIXTURES
+# DATA FETCHERS
 # ============================================================
 
 def get_football_events(date_value):
-    data = sportsdb_get(
-        "eventsday.php",
-        {
-            "d": date_string(date_value),
-            "s": "Soccer",
-        },
-    )
+    data = sportsdb_get("eventsday.php", {"d": date_string(date_value), "s": "Soccer"})
     if not data:
         return []
-
-    events = data.get("events")
-    if not events:
-        return []
-
-    return events
-
-
-# ============================================================
-# GET PREMIER LEAGUE FIXTURES
-# ============================================================
+    return data.get("events") or []
 
 def get_premier_league_events(date_value):
     events = get_football_events(date_value)
     results = []
-
     for event in events:
         league = (event.get("strLeague") or "").lower()
         if "premier league" in league or "english premier league" in league:
             results.append(event)
-
     return results
 
-
-# ============================================================
-# GET UK TV CHANNELS
-# ============================================================
-
 def get_uk_tv(date_value):
-    data = sportsdb_get(
-        "eventstv.php",
-        {
-            "d": date_string(date_value),
-            "s": "Soccer",
-            "a": "United_Kingdom",
-        },
-    )
+    data = sportsdb_get("eventstv.php", {"d": date_string(date_value), "s": "Soccer", "a": "United_Kingdom"})
     if not data:
         return {}
 
@@ -227,41 +195,7 @@ def get_uk_tv(date_value):
 
 
 # ============================================================
-# GET WORLDWIDE TV
-# ============================================================
-
-def get_worldwide_tv(event):
-    event_id = event.get("idEvent")
-    if not event_id:
-        return []
-
-    data = sportsdb_get("lookuptv.php", {"id": event_id})
-    if not data:
-        return []
-
-    broadcasts = data.get("tvevents") or data.get("events") or []
-    results = []
-    seen = set()
-
-    for broadcast in broadcasts:
-        channel = (broadcast.get("strChannel") or broadcast.get("strName") or "").strip()
-        country = (broadcast.get("strCountry") or broadcast.get("strLocation") or "International").strip()
-
-        if not channel:
-            continue
-
-        key = (country.lower(), channel.lower())
-        if key in seen:
-            continue
-
-        seen.add(key)
-        results.append({"country": country, "channel": channel})
-
-    return results
-
-
-# ============================================================
-# UK TV DISPLAY
+# UI FORMATTING (WITH HTML ESCAPING)
 # ============================================================
 
 def uk_tv_text(event, tv_by_event):
@@ -273,40 +207,29 @@ def uk_tv_text(event, tv_by_event):
 
     lines = ["📺 <b>UK TV:</b>"]
     for channel in channels[:8]:
-        lines.append(f"• {channel}")
+        # ESCAPE HTML: Fixes crashes when TV channels contain '&' (e.g. A&E)
+        safe_channel = html.escape(channel)
+        lines.append(f"• {safe_channel}")
 
     return "\n".join(lines)
 
 
-# ============================================================
-# MATCH TEXT
-# ============================================================
-
 def match_text(event, tv_by_event, number=None):
-    home = event.get("strHomeTeam") or "Home"
-    away = event.get("strAwayTeam") or "Away"
+    # ESCAPE HTML: Fixes crashes when team names contain '&' (e.g. Brighton & Hove Albion)
+    home = html.escape(event.get("strHomeTeam") or "Home")
+    away = html.escape(event.get("strAwayTeam") or "Away")
+    
     event_time = event_datetime_uk(event)
-
-    if event_time:
-        time_text = event_time.strftime("%H:%M")
-    else:
-        time_text = "TBC"
+    time_text = event_time.strftime("%H:%M") if event_time else "TBC"
 
     prefix = f"{number}. " if number is not None else ""
 
-    # Note the use of HTML tags <b> instead of Markdown **
-    text = (
+    return (
         f"{prefix}🕒 <b>{time_text} UK</b>\n"
         f"⚽ <b>{home} vs {away}</b>\n"
         f"{uk_tv_text(event, tv_by_event)}"
     )
 
-    return text
-
-
-# ============================================================
-# MAIN FIXTURE PAGE
-# ============================================================
 
 def fixtures_page(date_value, mode="premier"):
     if mode == "premier":
@@ -316,46 +239,26 @@ def fixtures_page(date_value, mode="premier"):
         events = get_football_events(date_value)
         title = "⚽ Football"
 
-    # Sort by UK time
-    events.sort(
-        key=lambda event: (
-            event_datetime_uk(event) or datetime.max.replace(tzinfo=UK_TIMEZONE)
-        )
-    )
+    # BUG FIX: Use 2099 instead of datetime.max to prevent Linux OverflowErrors
+    fallback_date = datetime(2099, 12, 31, tzinfo=UK_TIMEZONE)
+    events.sort(key=lambda event: event_datetime_uk(event) or fallback_date)
 
     tv_by_event = get_uk_tv(date_value)
 
-    # Header (HTML)
-    text = (
-        f"📅 <b>{pretty_date(date_value)}</b>\n"
-        f"{title}\n\n"
-    )
+    text = f"📅 <b>{pretty_date(date_value)}</b>\n{title}\n\n"
 
     if not events:
-        text += (
-            "❌ <b>No fixtures found.</b>\n\n"
-            "Try the next day."
-        )
-
-        keyboard = InlineKeyboardMarkup(
+        text += "❌ <b>No fixtures found.</b>\n\nTry the next day."
+        keyboard = InlineKeyboardMarkup([
             [
-                [
-                    InlineKeyboardButton(
-                        "⬅️ Previous Day",
-                        callback_data=f"day:{date_string(date_value - timedelta(days=1))}:{mode}",
-                    ),
-                    InlineKeyboardButton(
-                        "Next Day ➡️",
-                        callback_data=f"day:{date_string(date_value + timedelta(days=1))}:{mode}",
-                    ),
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="home")],
-            ]
-        )
+                InlineKeyboardButton("⬅️ Previous Day", callback_data=f"day:{date_string(date_value - timedelta(days=1))}:{mode}"),
+                InlineKeyboardButton("Next Day ➡️", callback_data=f"day:{date_string(date_value + timedelta(days=1))}:{mode}"),
+            ],
+            [InlineKeyboardButton("⬅️ Back", callback_data="home")],
+        ])
         return text, keyboard
 
     display_events = events[:20]
-
     text += f"📋 <b>{len(events)} fixture{'s' if len(events) != 1 else ''}</b>\n\n"
 
     for index, event in enumerate(display_events, start=1):
@@ -364,36 +267,27 @@ def fixtures_page(date_value, mode="premier"):
     if len(events) > 20:
         text += f"ℹ️ Showing first 20 of {len(events)} fixtures.\n\n"
 
-    # Navigation
     keyboard = [
         [
-            InlineKeyboardButton(
-                "⬅️ Previous Day",
-                callback_data=f"day:{date_string(date_value - timedelta(days=1))}:{mode}",
-            ),
-            InlineKeyboardButton(
-                "Next Day ➡️",
-                callback_data=f"day:{date_string(date_value + timedelta(days=1))}:{mode}",
-            ),
+            InlineKeyboardButton("⬅️ Previous Day", callback_data=f"day:{date_string(date_value - timedelta(days=1))}:{mode}"),
+            InlineKeyboardButton("Next Day ➡️", callback_data=f"day:{date_string(date_value + timedelta(days=1))}:{mode}"),
         ],
         [InlineKeyboardButton("🌍 View Match TV", callback_data="tv_help")],
         [InlineKeyboardButton("⬅️ Back", callback_data="home")],
     ]
-
     return text, InlineKeyboardMarkup(keyboard)
 
 
 # ============================================================
-# HOME MENU
+# BOT COMMANDS & HANDLERS
 # ============================================================
 
 def home_keyboard():
-    keyboard = [
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("🏆 Premier League", callback_data="premier_today")],
         [InlineKeyboardButton("⚽ All Football", callback_data="football_today")],
         [InlineKeyboardButton("📺 TV Channels", callback_data="tv_help")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    ])
 
 def home_text():
     return (
@@ -403,56 +297,22 @@ def home_text():
         "🕒 All match times are shown in <b>UK time</b>."
     )
 
-
-# ============================================================
-# START
-# ============================================================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Using HTML to prevent Markdown escaping errors
-    await update.message.reply_text(
-        home_text(),
-        reply_markup=home_keyboard(),
-        parse_mode="HTML",
-    )
-
-
-# ============================================================
-# SHOW FIXTURES
-# ============================================================
+    await update.message.reply_text(home_text(), reply_markup=home_keyboard(), parse_mode="HTML")
 
 async def show_fixtures(query, date_value, mode):
     await query.answer()
-
     try:
-        await query.edit_message_text(
-            "⏳ <b>Loading fixtures and TV channels...</b>",
-            parse_mode="HTML",
-        )
-
+        await query.edit_message_text("⏳ <b>Loading fixtures and TV channels...</b>", parse_mode="HTML")
         text, keyboard = fixtures_page(date_value, mode)
-
-        await query.edit_message_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-
+        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
     except Exception as error:
         logger.exception("Fixture error: %s", error)
         await query.edit_message_text(
-            "❌ <b>Something went wrong.</b>\n\n"
-            "Please try again.",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("⬅️ Back", callback_data="home")]]
-            ),
+            "❌ <b>Something went wrong.</b>\n\nPlease try again.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="home")]]),
             parse_mode="HTML",
         )
-
-
-# ============================================================
-# CALLBACK BUTTONS
-# ============================================================
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -460,11 +320,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "home":
         await query.answer()
-        await query.edit_message_text(
-            home_text(),
-            reply_markup=home_keyboard(),
-            parse_mode="HTML",
-        )
+        await query.edit_message_text(home_text(), reply_markup=home_keyboard(), parse_mode="HTML")
         return
 
     if data == "premier_today":
@@ -476,18 +332,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data.startswith("day:"):
-        # REMOVED `await query.answer()` here because `show_fixtures` handles it
         parts = data.split(":")
-        if len(parts) != 3:
-            return
-
-        date_text, mode = parts[1], parts[2]
-        try:
-            selected_date = datetime.strptime(date_text, "%Y-%m-%d").date()
-        except ValueError:
-            return
-
-        await show_fixtures(query, selected_date, mode)
+        if len(parts) == 3:
+            try:
+                selected_date = datetime.strptime(parts[1], "%Y-%m-%d").date()
+                await show_fixtures(query, selected_date, parts[2])
+            except ValueError:
+                pass
         return
 
     if data == "tv_help":
@@ -500,50 +351,35 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📺 <b>UK TV: TBC</b>\n\n"
             "Tap a match's TV button in future versions to see worldwide broadcasters."
         )
-
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("⬅️ Back", callback_data="home")]]
-        )
-
         await query.edit_message_text(
             text,
-            reply_markup=keyboard,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="home")]]),
             parse_mode="HTML",
         )
         return
 
     await query.answer("This button is no longer available.")
 
-
-# ============================================================
-# ERROR HANDLER
-# ============================================================
-
 async def error_handler(update, context):
     logger.exception("Telegram error:", exc_info=context.error)
 
 
 # ============================================================
-# MAIN ENTRY POINT (ADDED)
+# MAIN ENTRY POINT
 # ============================================================
 
 def main():
-    """Start the bot."""
-    
-    # Initialize the Application
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    # 1. Start the health check for Bunny.net
+    threading.Thread(target=start_health_server, daemon=True).start()
 
-    # Register handlers
+    # 2. Start the Bot
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Register error handler
     app.add_error_handler(error_handler)
 
-    # Start the bot
     logger.info("Starting bot polling...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
 
 if __name__ == "__main__":
     main()
