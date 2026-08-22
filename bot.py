@@ -9,6 +9,22 @@ import bot_core
 
 
 # ============================================================
+# GROUP / TOPIC LOCK PATCH
+# ============================================================
+# Keep the working core file untouched, but correct Group 2 here.
+bot_core.ALLOWED_LOCATIONS = [
+    {
+        "chat_id": "3988874271",
+        "topic_id": "10394",
+    },
+    {
+        "chat_id": "2523097986",
+        "topic_id": "12121",
+    },
+]
+
+
+# ============================================================
 # HOME PAGE PATCH: ADD LIVE NOW WITHOUT TOUCHING THE CORE FILE
 # ============================================================
 
