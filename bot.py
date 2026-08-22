@@ -56,6 +56,8 @@ CATEGORIES = {
     "ufc": {"icon": "🥋", "title": "UFC", "sport": "Fighting"},
     "boxing": {"icon": "🥊", "title": "Boxing", "sport": "Fighting"},
     "wwe": {"icon": "🤼", "title": "WWE", "sport": "Fighting"},
+    "golf": {"icon": "⛳", "title": "Golf", "sport": "Golf"},
+    "darts": {"icon": "🎯", "title": "Darts", "sport": "Darts"}
 }
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -141,6 +143,10 @@ def fetch_events(date_value, category):
             if lid == "4444" or "wwe" in lname:
                 filtered.append(e)
                 
+        elif category in ["golf", "darts"]:
+            # Standard pass-through for all Golf and Darts leagues/events
+            filtered.append(e)
+                
     return filtered[:15]
 
 def get_tv_channels(date_value, sport):
@@ -217,6 +223,10 @@ def build_home_page():
         [
             InlineKeyboardButton("🏉 Rugby Hub", callback_data="menu:rugby"),
             InlineKeyboardButton("🥊 Combat Hub", callback_data="menu:combat")
+        ],
+        [
+            InlineKeyboardButton("⛳ Golf", callback_data=f"date:{today_str}:golf"),
+            InlineKeyboardButton("🎯 Darts", callback_data=f"date:{today_str}:darts")
         ],
         [
             InlineKeyboardButton("⚙️ Supported App Channels", callback_data="menu:channels")
@@ -333,6 +343,7 @@ def build_fixtures_page(date_value, category):
     prev_day_str = date_string(date_value - timedelta(days=1))
     next_day_str = date_string(date_value + timedelta(days=1))
     
+    # Intelligently route the "Back" button depending on where they came from
     back_target = "menu:home"
     if category in ["nrl", "superleague", "union"]:
         back_target = "menu:rugby"
@@ -509,7 +520,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
-    logger.info("Bot starting with Premium MatchDay Hub branding...")
+    logger.info("Bot starting with Golf & Darts integrations...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
