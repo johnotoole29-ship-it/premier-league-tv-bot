@@ -1344,27 +1344,32 @@ async def start(
             bot_username = bot_info.username
 
             group_text = (
-                "⚡ <b>SPORTS BOT</b>\n"
-                "<i>Fixtures & TV Guide</i>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n\n"
-                "Tap below to open your private "
-                "fixture and TV guide."
-            )
+    "⚡ <b>SPORTS BOT</b>\n"
+    "<i>Your fixture & broadcast companion</i>\n"
+    "━━━━━━━━━━━━━━━━━━━━\n\n"
+    "📅 <b>Fixtures</b>\n"
+    "📺 <b>TV & streaming channels</b>\n"
+    "🌍 <b>Major leagues & sports</b>\n"
+    "🕒 <b>UK local times</b>\n\n"
+    "Everything is kept inside your private Match Centre "
+    "so the group stays clean and uncluttered.\n\n"
+    "👇 <b>Open Sports Bot to get started</b>"
+)
 
-            keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "🚀 Open Sports Bot",
-                            url=(
-                                f"https://t.me/"
-                                f"{bot_username}"
-                                f"?start=open"
-                            ),
-                        )
-                    ]
-                ]
+keyboard = InlineKeyboardMarkup(
+    [
+        [
+            InlineKeyboardButton(
+                "🚀 Open Match Centre",
+                url=(
+                    f"https://t.me/"
+                    f"{bot_username}"
+                    f"?start=open"
+                ),
             )
+        ]
+    ]
+)
 
             await message.reply_text(
                 group_text,
