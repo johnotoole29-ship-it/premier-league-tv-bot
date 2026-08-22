@@ -27,11 +27,7 @@ from telegram.ext import (
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SPORTSDB_API_KEY = os.getenv("SPORTSDB_API_KEY")
-
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
-
-# Note: Your container MUST have the 'tzdata' package installed 
-# for ZoneInfo to work on Linux.
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
 
@@ -49,15 +45,12 @@ logger = logging.getLogger("SportPulse")
 # ============================================================
 # CHECK ENVIRONMENT VARIABLES
 # ============================================================
-# TEMPORARY DEBUG LINE
-logger.info(f"DEBUG - Found Environment Keys: {list(os.environ.keys())}")
 
 if not TELEGRAM_TOKEN or not SPORTSDB_API_KEY:
     raise RuntimeError(
         "Missing TELEGRAM_TOKEN or SPORTSDB_API_KEY. "
         "Check your Bunny.net environment variables."
     )
-    
 
 
 # ============================================================
@@ -72,7 +65,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is running and healthy!")
         
     def log_message(self, format, *args):
-        # Suppress logging to keep console clean
         pass
 
 def start_health_server():
@@ -115,40 +107,32 @@ def pretty_date(date_value):
 
 def event_datetime_uk(event):
     timestamp = event.get("strTimestamp")
-
     if timestamp:
         try:
             if str(timestamp).isdigit():
                 utc_time = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
                 return utc_time.astimezone(UK_TIMEZONE)
-
             cleaned = str(timestamp).replace("Z", "+00:00")
             parsed = datetime.fromisoformat(cleaned)
-
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
-
             return parsed.astimezone(UK_TIMEZONE)
-        except Exception as error:
-            logger.warning("Could not parse strTimestamp %s: %s", timestamp, error)
+        except Exception:
+            pass
 
     date_value = event.get("dateEvent") or event.get("dateEventLocal")
     time_value = event.get("strTime") or event.get("strEventTime") or "00:00:00"
-
     if not date_value:
         return None
-
     try:
         clean_time = str(time_value)[:8]
         if len(clean_time) == 5:
             clean_time += ":00"
-
         utc_datetime = datetime.strptime(
-            f"{date_value} {clean_time}",
-            "%Y-%m-%d %H:%M:%S",
+            f"{date_value} {clean_time}", "%Y-%m-%d %H:%M:%S"
         ).replace(tzinfo=timezone.utc)
         return utc_datetime.astimezone(UK_TIMEZONE)
-    except Exception as error:
+    except Exception:
         return None
 
 
@@ -164,15 +148,11 @@ def get_football_events(date_value):
 
 def get_premier_league_events(date_value):
     events = get_football_events(date_value)
-    results = []
-    for event in events:
-        league = (event.get("strLeague") or "").lower()
-        if "premier league" in league or "english premier league" in league:
-            results.append(event)
-    return results
+    return [e for e in events if "premier league" in (e.get("strLeague") or "").lower()]
 
-def get_uk_tv(date_value):
-    data = sportsdb_get("eventstv.php", {"d": date_string(date_value), "s": "Soccer", "a": "United_Kingdom"})
+def get_global_tv(date_value):
+    # Removed the 'a' parameter so it pulls channels worldwide
+    data = sportsdb_get("eventstv.php", {"d": date_string(date_value), "s": "Soccer"})
     if not data:
         return {}
 
@@ -180,105 +160,143 @@ def get_uk_tv(date_value):
     tv_by_event = {}
 
     for broadcast in broadcasts:
-        event_id = broadcast.get("idEvent") or broadcast.get("id")
+        event_id = str(broadcast.get("idEvent") or broadcast.get("id") or "")
         if not event_id:
             continue
 
         channel = (broadcast.get("strChannel") or broadcast.get("strName") or "").strip()
+        country = (broadcast.get("strCountry") or broadcast.get("strLocation") or "Intl").strip()
+        
         if not channel:
             continue
 
-        event_key = str(event_id)
-        tv_by_event.setdefault(event_key, [])
-
-        if channel not in tv_by_event[event_key]:
-            tv_by_event[event_key].append(channel)
+        tv_by_event.setdefault(event_id, [])
+        entry = f"{country}: {channel}"
+        
+        if entry not in tv_by_event[event_id]:
+            tv_by_event[event_id].append(entry)
 
     return tv_by_event
 
 
 # ============================================================
-# UI FORMATTING (WITH HTML ESCAPING)
+# UI FORMATTING
 # ============================================================
 
-def uk_tv_text(event, tv_by_event):
+def tv_text_global(event, tv_by_event):
     event_id = str(event.get("idEvent") or "")
     channels = tv_by_event.get(event_id, [])
 
     if not channels:
-        return "📺 <b>UK TV:</b> TBC"
+        return "📺 <b>TV:</b> TBC"
 
-    lines = ["📺 <b>UK TV:</b>"]
-    for channel in channels[:8]:
-        # ESCAPE HTML: Fixes crashes when TV channels contain '&' (e.g. A&E)
-        safe_channel = html.escape(channel)
-        lines.append(f"• {safe_channel}")
+    lines = ["📺 <b>TV:</b>"]
+    # Limit to 10 channels so the message doesn't get ridiculously long
+    for entry in channels[:10]:
+        safe_entry = html.escape(entry)
+        lines.append(f"• {safe_entry}")
+        
+    if len(channels) > 10:
+        lines.append(f"• <i>...and {len(channels) - 10} more</i>")
 
     return "\n".join(lines)
 
 
 def match_text(event, tv_by_event, number=None):
-    # ESCAPE HTML: Fixes crashes when team names contain '&' (e.g. Brighton & Hove Albion)
     home = html.escape(event.get("strHomeTeam") or "Home")
     away = html.escape(event.get("strAwayTeam") or "Away")
     
     event_time = event_datetime_uk(event)
     time_text = event_time.strftime("%H:%M") if event_time else "TBC"
-
     prefix = f"{number}. " if number is not None else ""
 
     return (
         f"{prefix}🕒 <b>{time_text} UK</b>\n"
         f"⚽ <b>{home} vs {away}</b>\n"
-        f"{uk_tv_text(event, tv_by_event)}"
+        f"{tv_text_global(event, tv_by_event)}"
     )
 
 
-def fixtures_page(date_value, mode="premier"):
-    if mode == "premier":
-        events = get_premier_league_events(date_value)
-        title = "🏆 Premier League"
-    else:
-        events = get_football_events(date_value)
-        title = "⚽ Football"
+# ============================================================
+# FOLDER PAGES (LEAGUES)
+# ============================================================
 
-    # BUG FIX: Use 2099 instead of datetime.max to prevent Linux OverflowErrors
-    fallback_date = datetime(2099, 12, 31, tzinfo=UK_TIMEZONE)
-    events.sort(key=lambda event: event_datetime_uk(event) or fallback_date)
-
-    tv_by_event = get_uk_tv(date_value)
-
-    text = f"📅 <b>{pretty_date(date_value)}</b>\n{title}\n\n"
-
+def leagues_menu_page(date_value):
+    events = get_football_events(date_value)
+    
     if not events:
-        text += "❌ <b>No fixtures found.</b>\n\nTry the next day."
+        text = f"📅 <b>{pretty_date(date_value)}</b>\n\n❌ <b>No fixtures found.</b>"
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("⬅️ Previous Day", callback_data=f"day:{date_string(date_value - timedelta(days=1))}:{mode}"),
-                InlineKeyboardButton("Next Day ➡️", callback_data=f"day:{date_string(date_value + timedelta(days=1))}:{mode}"),
+                InlineKeyboardButton("⬅️ Prev Day", callback_data=f"lday:{date_string(date_value - timedelta(days=1))}"),
+                InlineKeyboardButton("Next Day ➡️", callback_data=f"lday:{date_string(date_value + timedelta(days=1))}"),
             ],
-            [InlineKeyboardButton("⬅️ Back", callback_data="home")],
+            [InlineKeyboardButton("⬅️ Home", callback_data="home")]
         ])
         return text, keyboard
 
-    display_events = events[:20]
-    text += f"📋 <b>{len(events)} fixture{'s' if len(events) != 1 else ''}</b>\n\n"
+    # Extract unique leagues
+    leagues = {}
+    for e in events:
+        lid = str(e.get("idLeague") or "")
+        lname = e.get("strLeague") or "Unknown League"
+        if lid:
+            leagues[lid] = lname
 
-    for index, event in enumerate(display_events, start=1):
-        text += match_text(event, tv_by_event, index) + "\n\n"
+    # Sort alphabetically
+    sorted_leagues = sorted(leagues.items(), key=lambda x: x[1])
+    
+    text = f"📅 <b>{pretty_date(date_value)}</b>\n📁 <b>Select a League:</b>\n<i>({len(events)} matches across {len(leagues)} leagues)</i>"
+    
+    # Build keyboard (2 leagues per row)
+    keyboard = []
+    row = []
+    for lid, lname in sorted_leagues:
+        safe_name = lname if len(lname) < 30 else lname[:27] + "..."
+        row.append(InlineKeyboardButton(safe_name, callback_data=f"lg:{date_string(date_value)}:{lid}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
 
-    if len(events) > 20:
-        text += f"ℹ️ Showing first 20 of {len(events)} fixtures.\n\n"
+    # Add navigation to the bottom
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Prev Day", callback_data=f"lday:{date_string(date_value - timedelta(days=1))}"),
+        InlineKeyboardButton("Next Day ➡️", callback_data=f"lday:{date_string(date_value + timedelta(days=1))}"),
+    ])
+    keyboard.append([InlineKeyboardButton("⬅️ Back to Home", callback_data="home")])
 
-    keyboard = [
-        [
-            InlineKeyboardButton("⬅️ Previous Day", callback_data=f"day:{date_string(date_value - timedelta(days=1))}:{mode}"),
-            InlineKeyboardButton("Next Day ➡️", callback_data=f"day:{date_string(date_value + timedelta(days=1))}:{mode}"),
-        ],
-        [InlineKeyboardButton("🌍 View Match TV", callback_data="tv_help")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="home")],
-    ]
     return text, InlineKeyboardMarkup(keyboard)
+
+
+def specific_league_fixtures_page(date_value, league_id):
+    events = get_football_events(date_value)
+    
+    # Filter for the selected league
+    league_events = [e for e in events if str(e.get("idLeague")) == str(league_id)]
+    
+    if not league_events:
+        return "❌ <b>Matches no longer found.</b>", InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data=f"lday:{date_string(date_value)}")]])
+
+    league_name = html.escape(league_events[0].get("strLeague") or "League")
+    
+    fallback_date = datetime(2099, 12, 31, tzinfo=UK_TIMEZONE)
+    league_events.sort(key=lambda e: event_datetime_uk(e) or fallback_date)
+    
+    tv_by_event = get_global_tv(date_value)
+    
+    text = f"📅 <b>{pretty_date(date_value)}</b>\n🏆 <b>{league_name}</b>\n\n"
+    
+    for index, event in enumerate(league_events, start=1):
+        text += match_text(event, tv_by_event, index) + "\n\n"
+        
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Back to Leagues", callback_data=f"lday:{date_string(date_value)}")],
+        [InlineKeyboardButton("🏠 Home", callback_data="home")]
+    ])
+    
+    return text, keyboard
 
 
 # ============================================================
@@ -287,9 +305,8 @@ def fixtures_page(date_value, mode="premier"):
 
 def home_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏆 Premier League", callback_data="premier_today")],
-        [InlineKeyboardButton("⚽ All Football", callback_data="football_today")],
-        [InlineKeyboardButton("📺 TV Channels", callback_data="tv_help")],
+        [InlineKeyboardButton("🏆 Premier League Today", callback_data="premier_today")],
+        [InlineKeyboardButton("📁 All Football (By League)", callback_data=f"lday:{date_string(uk_date())}")],
     ])
 
 def home_text():
@@ -303,62 +320,68 @@ def home_text():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(home_text(), reply_markup=home_keyboard(), parse_mode="HTML")
 
-async def show_fixtures(query, date_value, mode):
-    await query.answer()
-    try:
-        await query.edit_message_text("⏳ <b>Loading fixtures and TV channels...</b>", parse_mode="HTML")
-        text, keyboard = fixtures_page(date_value, mode)
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
-    except Exception as error:
-        logger.exception("Fixture error: %s", error)
-        await query.edit_message_text(
-            "❌ <b>Something went wrong.</b>\n\nPlease try again.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="home")]]),
-            parse_mode="HTML",
-        )
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
 
+    # HOME
     if data == "home":
         await query.answer()
         await query.edit_message_text(home_text(), reply_markup=home_keyboard(), parse_mode="HTML")
         return
 
+    # PREMIER LEAGUE (Fast-track)
     if data == "premier_today":
-        await show_fixtures(query, uk_date(), "premier")
+        await query.answer()
+        await query.edit_message_text("⏳ <b>Loading Premier League...</b>", parse_mode="HTML")
+        try:
+            date_value = uk_date()
+            events = get_premier_league_events(date_value)
+            tv_by_event = get_global_tv(date_value)
+            
+            fallback_date = datetime(2099, 12, 31, tzinfo=UK_TIMEZONE)
+            events.sort(key=lambda e: event_datetime_uk(e) or fallback_date)
+            
+            text = f"📅 <b>{pretty_date(date_value)}</b>\n🏆 <b>Premier League</b>\n\n"
+            if not events:
+                text += "❌ <b>No Premier League fixtures today.</b>"
+            else:
+                for index, event in enumerate(events, start=1):
+                    text += match_text(event, tv_by_event, index) + "\n\n"
+                    
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="home")]])
+            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception as error:
+            logger.exception("Error: %s", error)
+            await query.edit_message_text("❌ <b>Error loading fixtures.</b>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="home")]]), parse_mode="HTML")
         return
 
-    if data == "football_today":
-        await show_fixtures(query, uk_date(), "football")
+    # LEAGUE MENU (Folders)
+    if data.startswith("lday:"):
+        await query.answer()
+        date_str = data.split(":")[1]
+        try:
+            date_value = datetime.strptime(date_str, "%Y-%m-%d").date()
+            await query.edit_message_text("⏳ <b>Loading Leagues...</b>", parse_mode="HTML")
+            text, keyboard = leagues_menu_page(date_value)
+            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception as error:
+            logger.exception("Error loading leagues: %s", error)
         return
 
-    if data.startswith("day:"):
+    # SPECIFIC LEAGUE VIEW
+    if data.startswith("lg:"):
+        await query.answer()
         parts = data.split(":")
         if len(parts) == 3:
+            date_str, league_id = parts[1], parts[2]
             try:
-                selected_date = datetime.strptime(parts[1], "%Y-%m-%d").date()
-                await show_fixtures(query, selected_date, parts[2])
-            except ValueError:
-                pass
-        return
-
-    if data == "tv_help":
-        await query.answer()
-        text = (
-            "📺 <b>TV CHANNELS</b>\n\n"
-            "The bot checks TheSportsDB's TV listings for each football fixture.\n\n"
-            "If a UK broadcaster is listed, it appears directly underneath the match.\n\n"
-            "If no UK broadcaster is currently listed, you will see:\n\n"
-            "📺 <b>UK TV: TBC</b>\n\n"
-            "Tap a match's TV button in future versions to see worldwide broadcasters."
-        )
-        await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="home")]]),
-            parse_mode="HTML",
-        )
+                date_value = datetime.strptime(date_str, "%Y-%m-%d").date()
+                await query.edit_message_text("⏳ <b>Fetching Matches & TV...</b>", parse_mode="HTML")
+                text, keyboard = specific_league_fixtures_page(date_value, league_id)
+                await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
+            except Exception as error:
+                logger.exception("Error loading league fixtures: %s", error)
         return
 
     await query.answer("This button is no longer available.")
@@ -372,10 +395,7 @@ async def error_handler(update, context):
 # ============================================================
 
 def main():
-    # 1. Start the health check for Bunny.net
     threading.Thread(target=start_health_server, daemon=True).start()
-
-    # 2. Start the Bot
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
@@ -386,3 +406,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
