@@ -40,8 +40,17 @@ SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
 # Telegram group/topic lock
-ALLOWED_CHAT_ID = "3988874271"
-ALLOWED_TOPIC_ID = "10394"
+# The bot will only respond in these exact group topics.
+ALLOWED_LOCATIONS = [
+    {
+        "chat_id": "3988874271",
+        "topic_id": "10394",
+    },
+    {
+        "chat_id": "2523097986",
+        "topic_id": "1",
+    },
+]
 
 
 # ============================================================
@@ -1708,21 +1717,16 @@ async def start(
             else None
         )
 
-        correct_group = (
+        allowed_location = any(
             chat_id.endswith(
-                ALLOWED_CHAT_ID
+                location["chat_id"]
             )
+            and thread_id
+            == location["topic_id"]
+            for location in ALLOWED_LOCATIONS
         )
 
-        correct_topic = (
-            thread_id
-            == ALLOWED_TOPIC_ID
-        )
-
-        if (
-            correct_group
-            and correct_topic
-        ):
+        if allowed_location:
 
             bot_info = (
                 await context.bot.get_me()
