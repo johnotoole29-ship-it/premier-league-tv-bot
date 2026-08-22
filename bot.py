@@ -62,32 +62,22 @@ def build_home_page_with_live():
 bot_core.build_home_page = build_home_page_with_live
 
 LIVE_LEAGUES = {
-    "4328": "Premier League", "4329": "Championship", "4335": "La Liga",
-    "4332": "Serie A", "4331": "Bundesliga", "4334": "Ligue 1",
+    "4328": "Premier League",
+    "4329": "Championship",
+    "4335": "La Liga",
+    "4332": "Serie A",
+    "4331": "Bundesliga",
+    "4334": "Ligue 1",
 }
 
-
-def build_live_menu():
-    text = (
-        "🔴 <b>LIVE NOW</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Live scores are currently available for football."
-    )
-    return text, InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚽ FOOTBALL", callback_data="live:football")],
-        [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
-    ])
-
-
-def build_live_football_menu():
-    text = "⚽ <b>LIVE FOOTBALL</b>\n━━━━━━━━━━━━━━━━━━━━\nChoose a league."
-    return text, InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏴 Premier League", callback_data="live:league:4328"), InlineKeyboardButton("🏴 Championship", callback_data="live:league:4329")],
-        [InlineKeyboardButton("🇪🇸 La Liga", callback_data="live:league:4335"), InlineKeyboardButton("🇮🇹 Serie A", callback_data="live:league:4332")],
-        [InlineKeyboardButton("🇩🇪 Bundesliga", callback_data="live:league:4331"), InlineKeyboardButton("🇫🇷 Ligue 1", callback_data="live:league:4334")],
-        [InlineKeyboardButton("⬅️ LIVE NOW", callback_data="live:menu")],
-        [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
-    ])
+LEAGUE_ICONS = {
+    "4328": "🏴",
+    "4329": "🏴",
+    "4335": "🇪🇸",
+    "4332": "🇮🇹",
+    "4331": "🇩🇪",
+    "4334": "🇫🇷",
+}
 
 
 def _extract_live_events(data):
@@ -117,6 +107,69 @@ def fetch_live_football_league(league_id):
     if events is None:
         return None
     return [event for event in events if str(event.get("idLeague") or "") == str(league_id)]
+
+
+def event_title(event):
+    home = str(event.get("strHomeTeam") or "").strip()
+    away = str(event.get("strAwayTeam") or "").strip()
+    return f"{home} vs {away}" if home and away else str(event.get("strEvent") or "Live Event").strip()
+
+
+def event_progress(event):
+    return str(event.get("strProgress") or event.get("strStatus") or "LIVE").strip()
+
+
+def event_score_line(event):
+    home = str(event.get("strHomeTeam") or "Home").strip()
+    away = str(event.get("strAwayTeam") or "Away").strip()
+    hs = event.get("intHomeScore")
+    as_ = event.get("intAwayScore")
+    progress = event_progress(event)
+    if hs in (None, "") or as_ in (None, ""):
+        return f"🔴 {html.escape(home)} vs {html.escape(away)} · {html.escape(progress)}"
+    return f"🔴 <b>{html.escape(home)} {html.escape(str(hs))}–{html.escape(str(as_))} {html.escape(away)}</b> · {html.escape(progress)}"
+
+
+def build_live_overview():
+    events = fetch_live_sport("soccer")
+    lines = [
+        "🔴 <b>LIVE NOW</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "Live scores across all supported football leagues.",
+    ]
+
+    if events is None:
+        lines.extend(["", "⚠️ Live scores are temporarily unavailable."])
+    else:
+        supported = [event for event in events if str(event.get("idLeague") or "") in LIVE_LEAGUES]
+        if not supported:
+            lines.extend(["", "No supported league matches are live right now."])
+        else:
+            for league_id, league_name in LIVE_LEAGUES.items():
+                league_events = [event for event in supported if str(event.get("idLeague") or "") == league_id]
+                if not league_events:
+                    continue
+                icon = LEAGUE_ICONS.get(league_id, "⚽")
+                lines.extend(["", f"{icon} <b>{html.escape(league_name)}</b>"])
+                for event in league_events:
+                    lines.append(event_score_line(event))
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏴 Premier League", callback_data="live:league:4328"), InlineKeyboardButton("🏴 Championship", callback_data="live:league:4329")],
+        [InlineKeyboardButton("🇪🇸 La Liga", callback_data="live:league:4335"), InlineKeyboardButton("🇮🇹 Serie A", callback_data="live:league:4332")],
+        [InlineKeyboardButton("🇩🇪 Bundesliga", callback_data="live:league:4331"), InlineKeyboardButton("🇫🇷 Ligue 1", callback_data="live:league:4334")],
+        [InlineKeyboardButton("🔄 REFRESH ALL SCORES", callback_data="live:menu")],
+        [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
+    ])
+    return "\n".join(lines), keyboard
+
+
+def build_live_menu():
+    return build_live_overview()
+
+
+def build_live_football_menu():
+    return build_live_overview()
 
 
 def fetch_confirmed_goals(event_id, max_goals=None):
@@ -165,16 +218,6 @@ def fetch_confirmed_goals(event_id, max_goals=None):
     return goals
 
 
-def event_title(event):
-    home = str(event.get("strHomeTeam") or "").strip()
-    away = str(event.get("strAwayTeam") or "").strip()
-    return f"{home} vs {away}" if home and away else str(event.get("strEvent") or "Live Event").strip()
-
-
-def event_progress(event):
-    return str(event.get("strProgress") or event.get("strStatus") or "LIVE").strip()
-
-
 def event_button_text(event):
     home = str(event.get("strHomeTeam") or "Home")
     away = str(event.get("strAwayTeam") or "Away")
@@ -200,7 +243,7 @@ def build_live_league_page(league_id):
                 buttons.append([InlineKeyboardButton(event_button_text(event), callback_data=f"matchcentre:{event_id}:{league_id}")])
     buttons.extend([
         [InlineKeyboardButton("🔄 REFRESH", callback_data=f"live:league:{league_id}")],
-        [InlineKeyboardButton("⬅️ LIVE FOOTBALL", callback_data="live:football")],
+        [InlineKeyboardButton("⬅️ ALL LIVE SCORES", callback_data="live:menu")],
         [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
     ])
     return text, InlineKeyboardMarkup(buttons)
@@ -251,7 +294,14 @@ def build_match_centre(event_id, league_id):
         unassigned = [g for g in goals if g not in home_goals and g not in away_goals]
         home_score = "–" if hs in (None, "") else html.escape(str(hs))
         away_score = "–" if as_ in (None, "") else html.escape(str(as_))
-        lines = ["🏟️ <b>MATCH CENTRE</b>", "━━━━━━━━━━━━━━━━━━━━", f"🏆 {html.escape(league_name)}", f"⏱ {progress}", "", f"🏠 <b>{home}</b>   <b>{home_score}</b>"]
+        lines = [
+            "🏟️ <b>MATCH CENTRE</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"🏆 {html.escape(league_name)}",
+            f"⏱ {progress}",
+            "",
+            f"🏠 <b>{home}</b>   <b>{home_score}</b>",
+        ]
         if home_goals:
             lines.extend(_goal_line(goal) for goal in home_goals)
         elif hs not in (None, "", 0, "0"):
