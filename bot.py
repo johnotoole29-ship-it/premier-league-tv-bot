@@ -32,7 +32,6 @@ SPORTSDB_API_KEY = os.getenv("SPORTSDB_API_KEY")
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
-# Group/topic lock
 ALLOWED_CHAT_ID = "3988874271"
 ALLOWED_TOPIC_ID = "10394"
 
@@ -71,106 +70,84 @@ MY_CHANNELS = [
 # ============================================================
 
 CATEGORIES = {
-
-    # FOOTBALL
-
     "football_prem": {
         "icon": "🏴",
         "title": "Premier League",
         "sport": "Soccer",
         "league_id": "4328",
     },
-
     "football_champ": {
         "icon": "🏴",
         "title": "Championship",
         "sport": "Soccer",
         "league_id": "4329",
     },
-
     "football_laliga": {
         "icon": "🇪🇸",
         "title": "La Liga",
         "sport": "Soccer",
         "league_id": "4335",
     },
-
     "football_seriea": {
         "icon": "🇮🇹",
         "title": "Serie A",
         "sport": "Soccer",
         "league_id": "4332",
     },
-
     "football_bundesliga": {
         "icon": "🇩🇪",
         "title": "Bundesliga",
         "sport": "Soccer",
         "league_id": "4331",
     },
-
     "football_ligue1": {
         "icon": "🇫🇷",
         "title": "Ligue 1",
         "sport": "Soccer",
         "league_id": "4334",
     },
-
-    # RUGBY
-
     "nrl": {
         "icon": "🦘",
         "title": "NRL",
         "sport": "Rugby",
         "league_id": "4416",
     },
-
     "superleague": {
         "icon": "🇬🇧",
         "title": "Super League",
         "sport": "Rugby",
         "league_id": "4415",
     },
-
     "union": {
         "icon": "🏉",
         "title": "Rugby Union",
         "sport": "Rugby",
         "league_id": None,
     },
-
-    # COMBAT
-
     "ufc": {
         "icon": "🥋",
         "title": "UFC",
         "sport": "Fighting",
         "league_id": None,
     },
-
     "boxing": {
         "icon": "🥊",
         "title": "Boxing",
         "sport": "Fighting",
         "league_id": None,
     },
-
     "wwe": {
         "icon": "🤼",
         "title": "WWE",
         "sport": "Fighting",
         "league_id": None,
     },
-
-    # OTHER
-
     "golf": {
         "icon": "⛳",
         "title": "Golf",
         "sport": "Golf",
         "league_id": None,
     },
-
     "darts": {
         "icon": "🎯",
         "title": "Darts",
@@ -197,14 +174,10 @@ logger = logging.getLogger("SportsBot")
 # ============================================================
 
 if not TELEGRAM_TOKEN:
-    raise RuntimeError(
-        "TELEGRAM_TOKEN is missing from Bunny.net."
-    )
+    raise RuntimeError("TELEGRAM_TOKEN is missing from Bunny.net.")
 
 if not SPORTSDB_API_KEY:
-    raise RuntimeError(
-        "SPORTSDB_API_KEY is missing from Bunny.net."
-    )
+    raise RuntimeError("SPORTSDB_API_KEY is missing from Bunny.net.")
 
 
 # ============================================================
@@ -215,14 +188,9 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.send_response(200)
-        self.send_header(
-            "Content-Type",
-            "text/plain",
-        )
+        self.send_header("Content-Type", "text/plain")
         self.end_headers()
-        self.wfile.write(
-            b"Sports Bot is running."
-        )
+        self.wfile.write(b"Sports Bot is running.")
 
     def log_message(self, format, *args):
         pass
@@ -380,7 +348,7 @@ def parse_uk_time(event):
 
 
 # ============================================================
-# FETCH EVENTS
+# EVENT FILTERING
 # ============================================================
 
 def fetch_events(date_value, category):
@@ -431,9 +399,7 @@ def fetch_events(date_value, category):
             + event_name
         )
 
-        # ----------------------------------------------------
         # FOOTBALL
-        # ----------------------------------------------------
 
         if category == "football_prem":
 
@@ -465,9 +431,7 @@ def fetch_events(date_value, category):
             if league_id == "4334":
                 filtered.append(event)
 
-        # ----------------------------------------------------
         # RUGBY
-        # ----------------------------------------------------
 
         elif category == "nrl":
 
@@ -505,9 +469,7 @@ def fetch_events(date_value, category):
             ):
                 filtered.append(event)
 
-        # ----------------------------------------------------
         # COMBAT
-        # ----------------------------------------------------
 
         elif category == "ufc":
 
@@ -530,9 +492,7 @@ def fetch_events(date_value, category):
             ):
                 filtered.append(event)
 
-        # ----------------------------------------------------
-        # OTHER SPORTS
-        # ----------------------------------------------------
+        # OTHER
 
         elif category in [
             "golf",
@@ -891,7 +851,7 @@ def build_channels_page():
 
 
 # ============================================================
-# FIXTURE PAGE
+# FIXTURES PAGE
 # ============================================================
 
 def build_fixtures_page(
@@ -966,8 +926,13 @@ def build_fixtures_page(
             ).strip()
 
             if home and away:
-                title = f"{home} vs {away}"
+
+                title = (
+                    f"{home} vs {away}"
+                )
+
             else:
+
                 title = event_name
 
             event_time = parse_uk_time(
@@ -975,8 +940,11 @@ def build_fixtures_page(
             )
 
             if event_time.year == 2099:
+
                 time_text = "TBC"
+
             else:
+
                 time_text = (
                     event_time.strftime(
                         "%H:%M"
@@ -996,6 +964,7 @@ def build_fixtures_page(
             )
 
             if len(button_text) > 50:
+
                 button_text = (
                     button_text[:47]
                     + "..."
@@ -1050,15 +1019,19 @@ def build_fixtures_page(
     ]
 
     if category in football_categories:
+
         back_target = "menu:football"
 
     elif category in rugby_categories:
+
         back_target = "menu:rugby"
 
     elif category in combat_categories:
+
         back_target = "menu:combat"
 
     else:
+
         back_target = "menu:home"
 
     buttons.append(
@@ -1195,8 +1168,13 @@ def build_match_details_page(
     ).strip()
 
     if home and away:
-        title = f"{home} vs {away}"
+
+        title = (
+            f"{home} vs {away}"
+        )
+
     else:
+
         title = event_name
 
     event_time = parse_uk_time(
@@ -1204,8 +1182,11 @@ def build_match_details_page(
     )
 
     if event_time.year == 2099:
+
         time_text = "TBC"
+
     else:
+
         time_text = (
             event_time.strftime(
                 "%H:%M"
@@ -1370,10 +1351,7 @@ async def start(
             == ALLOWED_TOPIC_ID
         )
 
-        if (
-            correct_group
-            and correct_topic
-        ):
+        if correct_group and correct_topic:
 
             bot_info = (
                 await context.bot.get_me()
