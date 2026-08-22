@@ -49,12 +49,15 @@ logger = logging.getLogger("SportPulse")
 # ============================================================
 # CHECK ENVIRONMENT VARIABLES
 # ============================================================
+# TEMPORARY DEBUG LINE
+logger.info(f"DEBUG - Found Environment Keys: {list(os.environ.keys())}")
 
 if not TELEGRAM_TOKEN or not SPORTSDB_API_KEY:
     raise RuntimeError(
         "Missing TELEGRAM_TOKEN or SPORTSDB_API_KEY. "
         "Check your Bunny.net environment variables."
     )
+    
 
 
 # ============================================================
