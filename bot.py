@@ -49,7 +49,8 @@ MY_CHANNELS = [
 ]
 
 CATEGORIES = {
-    "football": {"icon": "⚽", "title": "Premier League", "sport": "Soccer"},
+    "football_prem": {"icon": "⚽", "title": "Premier League", "sport": "Soccer"},
+    "football_champ": {"icon": "⚽", "title": "Championship", "sport": "Soccer"},
     "nrl": {"icon": "🦘", "title": "NRL", "sport": "Rugby"},
     "superleague": {"icon": "🇬🇧", "title": "Super League", "sport": "Rugby"},
     "union": {"icon": "🏉", "title": "Rugby Union", "sport": "Rugby"},
@@ -115,8 +116,12 @@ def fetch_events(date_value, category):
         lid = str(e.get("idLeague", ""))
         lname = str(e.get("strLeague") or "").lower()
         
-        if category == "football":
+        if category == "football_prem":
             if lid == "4328":
+                filtered.append(e)
+                
+        elif category == "football_champ":
+            if lid == "4329" or "championship" in lname:
                 filtered.append(e)
                 
         elif category == "nrl":
@@ -144,7 +149,6 @@ def fetch_events(date_value, category):
                 filtered.append(e)
                 
         elif category in ["golf", "darts"]:
-            # Standard pass-through for all Golf and Darts leagues/events
             filtered.append(e)
                 
     return filtered[:15]
@@ -204,7 +208,6 @@ def parse_uk_time(event):
 # ============================================================
 def build_home_page():
     now_uk = datetime.now(UK_TIMEZONE)
-    today_str = date_string(now_uk.date())
     
     text = (
         "⚡ <b>MATCHDAY HUB</b>\n"
@@ -218,18 +221,40 @@ def build_home_page():
     
     kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⚽ Premier League", callback_data=f"date:{today_str}:football")
+            InlineKeyboardButton("⚽ Football Hub", callback_data="menu:football")
         ],
         [
             InlineKeyboardButton("🏉 Rugby Hub", callback_data="menu:rugby"),
             InlineKeyboardButton("🥊 Combat Hub", callback_data="menu:combat")
         ],
         [
-            InlineKeyboardButton("⛳ Golf", callback_data=f"date:{today_str}:golf"),
-            InlineKeyboardButton("🎯 Darts", callback_data=f"date:{today_str}:darts")
+            InlineKeyboardButton("⛳ Golf", callback_data=f"date:{date_string(now_uk.date())}:golf"),
+            InlineKeyboardButton("🎯 Darts", callback_data=f"date:{date_string(now_uk.date())}:darts")
         ],
         [
             InlineKeyboardButton("⚙️ Supported App Channels", callback_data="menu:channels")
+        ]
+    ])
+    
+    return text, kb
+
+def build_football_menu():
+    today_str = date_string(datetime.now(UK_TIMEZONE).date())
+    text = (
+        "⚽ <b>FOOTBALL HUB</b>\n"
+        "<i>Select a league below:</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━"
+    )
+    
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🏆 Premier League", callback_data=f"date:{today_str}:football_prem")
+        ],
+        [
+            InlineKeyboardButton("📈 Championship", callback_data=f"date:{today_str}:football_champ")
+        ],
+        [
+            InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="menu:home")
         ]
     ])
     
@@ -343,9 +368,11 @@ def build_fixtures_page(date_value, category):
     prev_day_str = date_string(date_value - timedelta(days=1))
     next_day_str = date_string(date_value + timedelta(days=1))
     
-    # Intelligently route the "Back" button depending on where they came from
+    # Intelligently route the "Back" button
     back_target = "menu:home"
-    if category in ["nrl", "superleague", "union"]:
+    if category in ["football_prem", "football_champ"]:
+        back_target = "menu:football"
+    elif category in ["nrl", "superleague", "union"]:
         back_target = "menu:rugby"
     elif category in ["ufc", "boxing", "wwe"]:
         back_target = "menu:combat"
@@ -462,6 +489,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
             
+        if data == "menu:football":
+            text, kb = build_football_menu()
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+            return
+            
         if data == "menu:rugby":
             text, kb = build_rugby_menu()
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
@@ -502,27 +534,4 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"UI Error: {e}")
         await query.edit_message_text(
             "❌ <b>Something went wrong.</b>",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="menu:home")]]),
-            parse_mode="HTML"
-        )
-
-async def error_handler(update, context):
-    logger.error("Telegram error:", exc_info=context.error)
-
-# ============================================================
-# MAIN
-# ============================================================
-def main():
-    threading.Thread(target=start_health_server, daemon=True).start()
-    
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_error_handler(error_handler)
-    
-    logger.info("Bot starting with Golf & Darts integrations...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    main()
-    
+            rep
