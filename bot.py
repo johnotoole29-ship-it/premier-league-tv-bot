@@ -18,6 +18,27 @@ SPORTSDB_API_KEY = os.getenv("SPORTSDB_API_KEY")
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
+# ============================================================
+# MY APP CHANNELS (LOWERCASE)
+# ============================================================
+# Edit this list to match the channels your app provides.
+# Keep everything lowercase. Partial names (like "sky sports") 
+# will automatically match "Sky Sports Main Event", etc.
+MY_CHANNELS = [
+    "sky sports",
+    "tnt sports",
+    "amazon prime",
+    "usa network",
+    "peacock",
+    "optus sport",
+    "fubo",
+    "nbc",
+    "supermport",
+    "bein sports",
+    "astro supersport"
+    "Sanata Events"
+]
+
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger("SportPulse")
 
@@ -62,10 +83,8 @@ def pretty_date(d):
     return d.strftime("%A %d %B %Y")
 
 def get_premier_league_events(date_value):
-    # Fetch all soccer for the day
     data = sportsdb_get("eventsday.php", {"d": date_string(date_value), "s": "Soccer"})
     
-    # Safely check if 'events' exists and is a list
     if not data or not isinstance(data.get("events"), list):
         return []
     
@@ -92,13 +111,20 @@ def get_tv_channels(date_value):
     for b in broadcasts:
         event_id = str(b.get("idEvent") or b.get("id") or "")
         channel = (b.get("strChannel") or b.get("strName") or "").strip()
-        country = (b.get("strCountry") or b.get("strLocation") or "UK").strip()
+        country = (b.get("strCountry") or b.get("strLocation") or "Intl").strip()
         
         if event_id and channel:
-            tv_dict.setdefault(event_id, [])
-            entry = f"{country}: {channel}"
-            if entry not in tv_dict[event_id]:
-                tv_dict[event_id].append(entry)
+            channel_lower = channel.lower()
+            
+            # --- CUSTOM CHANNEL FILTER ---
+            # Only keep the channel if a match is found in your MY_CHANNELS list
+            is_available = any(my_chan in channel_lower for my_chan in MY_CHANNELS)
+            
+            if is_available:
+                tv_dict.setdefault(event_id, [])
+                entry = f"{country}: {channel}"
+                if entry not in tv_dict[event_id]:
+                    tv_dict[event_id].append(entry)
                 
     return tv_dict
 
@@ -154,7 +180,7 @@ def build_pl_page(date_value):
             channels = tv_data.get(event_id, [])
             
             if not channels:
-                tv_text = "📺 <b>TV:</b> TBC"
+                tv_text = "📺 <b>TV:</b> No supported channels"
             else:
                 tv_text = "📺 <b>TV:</b>\n" + "\n".join(f"• {html.escape(c)}" for c in channels[:6])
                 if len(channels) > 6:
@@ -178,7 +204,6 @@ def build_pl_page(date_value):
 # HANDLERS
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Command /start instantly loads today's fixtures
     today = datetime.now(UK_TIMEZONE).date()
     text, kb = build_pl_page(today)
     await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
@@ -204,21 +229,15 @@ async def error_handler(update, context):
 # MAIN
 # ============================================================
 def main():
-    # 1. Start the health check for Bunny.net
     threading.Thread(target=start_health_server, daemon=True).start()
     
-    # 2. Build the bot application
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # 3. Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
-    # 4. Start polling
-    logger.info("Bot starting in Premier League-only mode...")
+    logger.info("Bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
-    
