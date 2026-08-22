@@ -23,6 +23,8 @@ UK_TIMEZONE = ZoneInfo("Europe/London")
 # ============================================================
 MY_CHANNELS = [
     "sky sports",       # UK
+    "tnt sports",       # UK
+    "amazon prime",     # UK
     "stan sport",       # Australia
     "fubo",             # Canada
     "espn",             # Caribbean
@@ -37,7 +39,9 @@ MY_CHANNELS = [
     "hub premier",      # Singapore
     "supersport",       # South Africa
     "monomax",          # Thailand
-    "usa network"       # USA
+    "usa network",      # USA
+    "peacock",          # USA
+    "nbc"               # USA
 ]
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -91,11 +95,9 @@ def get_premier_league_events(date_value):
     
     pl_events = []
     for e in data["events"]:
-        # STRICT FILTER: 4328 is the ONLY ID for the English Premier League.
         if str(e.get("idLeague")) == "4328":
             pl_events.append(e)
             
-    # Hard limit to 15 matches to guarantee it never breaches Telegram's character limit
     return pl_events[:15]
 
 def get_tv_channels(date_value):
@@ -112,13 +114,10 @@ def get_tv_channels(date_value):
     for b in broadcasts:
         event_id = str(b.get("idEvent") or b.get("id") or "")
         channel = (b.get("strChannel") or b.get("strName") or "").strip()
-        country = (b.get("strCountry") or b.get("strLocation") or "Intl").strip()
+        country = (b.get("strCountry") or b.get("strLocation") or "UK").strip()
         
         if event_id and channel:
             channel_lower = channel.lower()
-            
-            # --- CUSTOM CHANNEL FILTER ---
-            # Only keep the channel if a match is found in your MY_CHANNELS list
             is_available = any(my_chan in channel_lower for my_chan in MY_CHANNELS)
             
             if is_available:
@@ -133,9 +132,7 @@ def get_tv_channels(date_value):
 # TIME PARSING
 # ============================================================
 def parse_uk_time(event):
-    # Safe fallback date in the future to avoid sorting crash
     fallback = datetime(2099, 12, 31, tzinfo=UK_TIMEZONE)
-    
     date_val = event.get("dateEvent")
     time_val = event.get("strTime")
     
@@ -154,48 +151,103 @@ def parse_uk_time(event):
         return fallback
 
 # ============================================================
-# UI FORMATTING
+# UI VIEWS
 # ============================================================
+
+def build_home_page():
+    now_uk = datetime.now(UK_TIMEZONE)
+    today_str = date_string(now_uk.date())
+    tomorrow_str = date_string((now_uk + timedelta(days=1)).date())
+    
+    text = (
+        "⚽ <b>SPORT PULSE ALERTS</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Welcome to your Premier League Fixtures & TV Guide.\n\n"
+        f"🕒 <b>Current UK Time:</b> {now_uk.strftime('%H:%M - %A %d %b')}\n\n"
+        "Select an option below to view kick-off times and broadcast channels."
+    )
+    
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⚽ Today's Matches", callback_data=f"date:{today_str}"),
+            InlineKeyboardButton("📅 Tomorrow", callback_data=f"date:{tomorrow_str}")
+        ],
+        [
+            InlineKeyboardButton("📺 Supported App Channels", callback_data="view_channels")
+        ]
+    ])
+    
+    return text, kb
+
+
+def build_channels_page():
+    channel_list = "\n".join(f"• {c.title()}" for c in MY_CHANNELS)
+    text = (
+        "📺 <b>SUPPORTED APP CHANNELS</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "The bot automatically matches and displays feeds from the following broadcasters:\n\n"
+        f"{channel_list}\n\n"
+        "<i>Feeds outside this list are filtered out to keep listings clean.</i>"
+    )
+    
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="menu:home")]
+    ])
+    
+    return text, kb
+
+
 def build_pl_page(date_value):
     events = get_premier_league_events(date_value)
     tv_data = get_tv_channels(date_value)
     
-    # Sort safely by UK time
     events.sort(key=parse_uk_time)
     
-    text = f"🏆 <b>Premier League Fixtures</b>\n📅 <b>{pretty_date(date_value)}</b>\n\n"
+    text = (
+        f"🏆 <b>PREMIER LEAGUE FIXTURES</b>\n"
+        f"📅 <b>{pretty_date(date_value)}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
     
     if not events:
-        text += "❌ <i>No Premier League matches on this date.</i>"
+        text += "❌ <i>No Premier League matches scheduled for this date.</i>\n\n"
     else:
         for idx, event in enumerate(events, 1):
             home = html.escape(event.get("strHomeTeam") or "Home")
             away = html.escape(event.get("strAwayTeam") or "Away")
             
-            # Extract formatted time
             dt = parse_uk_time(event)
             time_str = dt.strftime("%H:%M") if dt.year != 2099 else "TBC"
             
-            # Build TV text (capping at 6 channels to save space)
             event_id = str(event.get("idEvent", ""))
             channels = tv_data.get(event_id, [])
             
             if not channels:
-                tv_text = "📺 <b>TV:</b> No supported channels"
+                tv_text = "📺 <i>No app channels listed yet</i>"
             else:
-                tv_text = "📺 <b>TV:</b>\n" + "\n".join(f"• {html.escape(c)}" for c in channels[:6])
+                tv_text = "📺 <b>Broadcasts:</b>\n" + "\n".join(f"   └ {html.escape(c)}" for c in channels[:6])
                 if len(channels) > 6:
-                    tv_text += f"\n• <i>+{len(channels)-6} more</i>"
+                    tv_text += f"\n   └ <i>+{len(channels)-6} more feeds</i>"
             
-            text += f"{idx}. 🕒 <b>{time_str} UK</b>\n⚽ <b>{home} vs {away}</b>\n{tv_text}\n\n"
+            text += (
+                f"<b>{idx}. {home} vs {away}</b>\n"
+                f"⏰ <b>Kick-off:</b> {time_str} UK\n"
+                f"{tv_text}\n\n"
+            )
             
-    # Simple, direct navigation
     today_str = date_string(datetime.now(UK_TIMEZONE).date())
+    prev_day_str = date_string(date_value - timedelta(days=1))
+    next_day_str = date_string(date_value + timedelta(days=1))
+    
     kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{date_string(date_value - timedelta(days=1))}"),
-            InlineKeyboardButton("Today", callback_data=f"date:{today_str}"),
-            InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{date_string(date_value + timedelta(days=1))}")
+            InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{prev_day_str}"),
+            InlineKeyboardButton("📅 Today", callback_data=f"date:{today_str}"),
+            InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{next_day_str}")
+        ],
+        [
+            InlineKeyboardButton("🔄 Refresh", callback_data=f"date:{date_string(date_value)}"),
+            InlineKeyboardButton("🏠 Main Menu", callback_data="menu:home")
         ]
     ])
     
@@ -205,23 +257,40 @@ def build_pl_page(date_value):
 # HANDLERS
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.now(UK_TIMEZONE).date()
-    text, kb = build_pl_page(today)
+    text, kb = build_home_page()
     await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if query.data.startswith("date:"):
-        date_str = query.data.split(":")[1]
-        try:
+    data = query.data
+    
+    try:
+        if data == "menu:home":
+            text, kb = build_home_page()
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+            return
+
+        if data == "view_channels":
+            text, kb = build_channels_page()
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+            return
+
+        if data.startswith("date:"):
+            date_str = data.split(":")[1]
             target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
             text, kb = build_pl_page(target_date)
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"UI Error: {e}")
-            await query.edit_message_text("❌ <b>Error loading date.</b>", parse_mode="HTML")
+            return
+
+    except Exception as e:
+        logger.error(f"UI Error: {e}")
+        await query.edit_message_text(
+            "❌ <b>Something went wrong.</b>",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="menu:home")]]),
+            parse_mode="HTML"
+        )
 
 async def error_handler(update, context):
     logger.error("Telegram error:", exc_info=context.error)
@@ -237,7 +306,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
-    logger.info("Bot starting...")
+    logger.info("Bot starting with updated navigation menus...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
