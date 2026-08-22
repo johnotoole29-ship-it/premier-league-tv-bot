@@ -40,10 +40,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type in ["group", "supergroup"]:
         chat_id = str(chat.id)
         thread_id = str(message.message_thread_id) if message.message_thread_id else None
-        allowed = any(
-            chat_id.endswith(loc["chat_id"]) and thread_id == loc["topic_id"]
-            for loc in bot_core.ALLOWED_LOCATIONS
-        )
+        allowed = any(chat_id.endswith(loc["chat_id"]) and thread_id == loc["topic_id"] for loc in bot_core.ALLOWED_LOCATIONS)
         if not allowed:
             return
         bot_info = await context.bot.get_me()
@@ -65,14 +62,9 @@ def build_home_page_with_live():
 bot_core.build_home_page = build_home_page_with_live
 
 LIVE_LEAGUES = {
-    "4328": "Premier League",
-    "4329": "Championship",
-    "4335": "La Liga",
-    "4332": "Serie A",
-    "4331": "Bundesliga",
-    "4334": "Ligue 1",
+    "4328": "Premier League", "4329": "Championship", "4335": "La Liga",
+    "4332": "Serie A", "4331": "Bundesliga", "4334": "Ligue 1",
 }
-
 LIVE_SPORTS = {
     "rugby": {"title": "Rugby", "icon": "🏉", "api": "rugby"},
     "combat": {"title": "Combat", "icon": "🥊", "api": "fighting"},
@@ -83,25 +75,23 @@ LIVE_SPORTS = {
 
 def build_live_menu():
     text = "🔴 <b>LIVE NOW</b>\n━━━━━━━━━━━━━━━━━━━━\nChoose a sport."
-    keyboard = InlineKeyboardMarkup([
+    return text, InlineKeyboardMarkup([
         [InlineKeyboardButton("⚽ FOOTBALL", callback_data="live:football")],
         [InlineKeyboardButton("🏉 RUGBY", callback_data="live:sport:rugby"), InlineKeyboardButton("🥊 COMBAT", callback_data="live:sport:combat")],
         [InlineKeyboardButton("⛳ GOLF", callback_data="live:sport:golf"), InlineKeyboardButton("🎯 DARTS", callback_data="live:sport:darts")],
         [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
     ])
-    return text, keyboard
 
 
 def build_live_football_menu():
     text = "⚽ <b>LIVE FOOTBALL</b>\n━━━━━━━━━━━━━━━━━━━━\nChoose a league."
-    keyboard = InlineKeyboardMarkup([
+    return text, InlineKeyboardMarkup([
         [InlineKeyboardButton("🏴 Premier League", callback_data="live:league:4328"), InlineKeyboardButton("🏴 Championship", callback_data="live:league:4329")],
         [InlineKeyboardButton("🇪🇸 La Liga", callback_data="live:league:4335"), InlineKeyboardButton("🇮🇹 Serie A", callback_data="live:league:4332")],
         [InlineKeyboardButton("🇩🇪 Bundesliga", callback_data="live:league:4331"), InlineKeyboardButton("🇫🇷 Ligue 1", callback_data="live:league:4334")],
         [InlineKeyboardButton("⬅️ LIVE SPORTS", callback_data="live:menu")],
         [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
     ])
-    return text, keyboard
 
 
 def fetch_live_sport(api_sport):
@@ -129,7 +119,7 @@ def fetch_live_football_league(league_id):
     return [event for event in events if str(event.get("idLeague") or "") == str(league_id)]
 
 
-def fetch_goal_scorers(event_id):
+def fetch_goal_scorers(event_id, max_goals=None):
     if not event_id:
         return []
     url = f"{bot_core.SPORTSDB_BASE}/{bot_core.SPORTSDB_API_KEY}/lookuptimeline.php"
@@ -143,13 +133,25 @@ def fetch_goal_scorers(event_id):
     timeline = data.get("timeline") or [] if isinstance(data, dict) else []
     if not isinstance(timeline, list):
         return []
+
+    rejected_terms = (
+        "disallowed", "disallow", "no goal", "not a goal", "goal cancelled",
+        "goal canceled", "cancelled goal", "canceled goal", "overturned",
+        "ruled out", "offside goal", "goal ruled out", "var disallowed",
+    )
     goals = []
     for item in timeline:
         if not isinstance(item, dict):
             continue
         event_type = str(item.get("strTimeline") or item.get("strType") or item.get("type") or item.get("strEvent") or "").lower()
         detail = str(item.get("strTimelineDetail") or item.get("strDetail") or item.get("detail") or "").lower()
+        all_text = " ".join(str(value).lower() for value in item.values() if value is not None)
+        if any(term in all_text for term in rejected_terms):
+            continue
         if "goal" not in event_type and "goal" not in detail:
+            continue
+        # Do not mistake generic VAR/offside timeline records for confirmed goals.
+        if ("var" in event_type or "offside" in event_type) and "goal" not in detail:
             continue
         player = item.get("strPlayer") or item.get("strPlayerName") or item.get("strName") or item.get("player") or "Unknown scorer"
         minute = item.get("intTime") or item.get("strTime") or item.get("intMinute") or item.get("strMinute") or item.get("time") or ""
@@ -160,6 +162,11 @@ def fetch_goal_scorers(event_id):
             line += f" — {html.escape(str(team))}"
         if line not in goals:
             goals.append(line)
+
+    # The live score is authoritative: never show more scoring events than
+    # the number of goals currently on the scoreboard.
+    if isinstance(max_goals, int) and max_goals >= 0:
+        goals = goals[:max_goals]
     return goals
 
 
@@ -176,13 +183,9 @@ def event_progress(event):
 def event_button_text(event):
     home = str(event.get("strHomeTeam") or "Home")
     away = str(event.get("strAwayTeam") or "Away")
-    hs = event.get("intHomeScore")
-    as_ = event.get("intAwayScore")
+    hs, as_ = event.get("intHomeScore"), event.get("intAwayScore")
     progress = event_progress(event)
-    if hs in (None, "") or as_ in (None, ""):
-        text = f"🔴 {home} vs {away} · {progress}"
-    else:
-        text = f"🔴 {home} {hs}-{as_} {away} · {progress}"
+    text = f"🔴 {home} vs {away} · {progress}" if hs in (None, "") or as_ in (None, "") else f"🔴 {home} {hs}-{as_} {away} · {progress}"
     return text[:60]
 
 
@@ -223,16 +226,21 @@ def build_match_centre(event_id, league_id):
     else:
         home = html.escape(str(event.get("strHomeTeam") or "Home"))
         away = html.escape(str(event.get("strAwayTeam") or "Away"))
-        hs = event.get("intHomeScore")
-        as_ = event.get("intAwayScore")
+        hs, as_ = event.get("intHomeScore"), event.get("intAwayScore")
         progress = html.escape(event_progress(event))
         score = f"{home} vs {away}" if hs in (None, "") or as_ in (None, "") else f"{home} {hs}–{as_} {away}"
         lines = ["🏟️ <b>MATCH CENTRE</b>", "━━━━━━━━━━━━━━━━━━━━", f"🏆 {html.escape(league_name)}", "", f"🔴 <b>{score}</b>", f"⏱ {progress}"]
-        goals = fetch_goal_scorers(event_id)
+        max_goals = None
+        try:
+            if hs not in (None, "") and as_ not in (None, ""):
+                max_goals = max(0, int(hs) + int(as_))
+        except (TypeError, ValueError):
+            max_goals = None
+        goals = fetch_goal_scorers(event_id, max_goals=max_goals)
         if goals:
             lines.extend(["", "⚽ <b>GOALS</b>", *goals])
         else:
-            lines.extend(["", "⚽ <b>GOALS</b>", "No goal timeline available yet."])
+            lines.extend(["", "⚽ <b>GOALS</b>", "No confirmed goal timeline available yet."])
         text = "\n".join(lines)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 REFRESH MATCH", callback_data=f"matchcentre:{event_id}:{league_id}")],
@@ -255,19 +263,17 @@ def build_live_sport_page(sport_key):
     else:
         lines = [f"{sport['icon']} <b>{sport['title'].upper()} LIVE</b>", "━━━━━━━━━━━━━━━━━━━━"]
         for event in events[:20]:
-            lines.append("")
-            lines.append(f"🔴 <b>{html.escape(event_title(event))}</b>")
+            lines.extend(["", f"🔴 <b>{html.escape(event_title(event))}</b>"])
             league = str(event.get("strLeague") or "").strip()
             if league:
                 lines.append(f"🏆 {html.escape(league)}")
             lines.append(f"⏱ {html.escape(event_progress(event))}")
         text = "\n".join(lines)
-    keyboard = InlineKeyboardMarkup([
+    return text, InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 REFRESH", callback_data=f"live:sport:{sport_key}")],
         [InlineKeyboardButton("⬅️ LIVE SPORTS", callback_data="live:menu")],
         [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
     ])
-    return text, keyboard
 
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
