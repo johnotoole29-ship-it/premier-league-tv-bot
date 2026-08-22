@@ -19,7 +19,7 @@ SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
 # ============================================================
-# MY APP CHANNELS (LOWERCASE)
+# MY APP CHANNELS & SPORT CATEGORIES
 # ============================================================
 MY_CHANNELS = [
     "sky sports",       # UK
@@ -27,7 +27,7 @@ MY_CHANNELS = [
     "amazon prime",     # UK
     "stan sport",       # Australia
     "fubo",             # Canada
-    "espn",             # Caribbean
+    "espn",             # Caribbean/USA
     "now prem",         # Hong Kong
     "now 4k",           # Hong Kong
     "star sports",      # India
@@ -43,6 +43,16 @@ MY_CHANNELS = [
     "peacock",          # USA
     "nbc"               # USA
 ]
+
+CATEGORIES = {
+    "football": {"icon": "⚽", "title": "All Football", "sport": "Soccer"},
+    "nrl": {"icon": "🦘", "title": "NRL", "sport": "Rugby"},
+    "superleague": {"icon": "🇬🇧", "title": "Super League", "sport": "Rugby"},
+    "union": {"icon": "🏉", "title": "Rugby Union", "sport": "Rugby"},
+    "ufc": {"icon": "🥋", "title": "UFC", "sport": "Fighting"},
+    "boxing": {"icon": "🥊", "title": "Boxing", "sport": "Fighting"},
+    "wwe": {"icon": "🤼", "title": "WWE", "sport": "Fighting"},
+}
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger("SportPulse")
@@ -87,21 +97,55 @@ def date_string(d):
 def pretty_date(d): 
     return d.strftime("%A %d %B %Y")
 
-def get_premier_league_events(date_value):
-    data = sportsdb_get("eventsday.php", {"d": date_string(date_value), "s": "Soccer"})
+def fetch_events(date_value, category):
+    meta = CATEGORIES.get(category)
+    data = sportsdb_get("eventsday.php", {"d": date_string(date_value), "s": meta["sport"]})
     
     if not data or not isinstance(data.get("events"), list):
         return []
-    
-    pl_events = []
+        
+    filtered = []
     for e in data["events"]:
-        if str(e.get("idLeague")) == "4328":
-            pl_events.append(e)
+        lid = str(e.get("idLeague", ""))
+        lname = str(e.get("strLeague") or "").lower()
+        
+        if category == "football":
+            filtered.append(e)
             
-    return pl_events[:15]
+        elif category == "nrl":
+            if lid == "4416" or "nrl" in lname or "national rugby league" in lname:
+                filtered.append(e)
+                
+        elif category == "superleague":
+            if lid == "4415" or "super league" in lname:
+                filtered.append(e)
+                
+        elif category == "union":
+            # Exclude NRL and Super League IDs to ensure it is purely Union or international Rugby
+            if lid not in ["4415", "4416"] and "nrl" not in lname and "super league" not in lname:
+                filtered.append(e)
+                
+        elif category == "ufc":
+            if lid == "4443" or "ufc" in lname:
+                filtered.append(e)
+                
+        elif category == "boxing":
+            if lid == "4445" or "boxing" in lname:
+                filtered.append(e)
+                
+        elif category == "wwe":
+            if lid == "4444" or "wwe" in lname:
+                filtered.append(e)
+                
+    # If the user selects "All Football", prioritize Premier League to prevent it being truncated
+    if category == "football":
+        filtered.sort(key=lambda e: 0 if str(e.get("idLeague")) == "4328" else 1)
+        
+    # Hard limit to 15 matches so Telegram never crashes from character overload
+    return filtered[:15]
 
-def get_tv_channels(date_value):
-    data = sportsdb_get("eventstv.php", {"d": date_string(date_value), "s": "Soccer"})
+def get_tv_channels(date_value, sport):
+    data = sportsdb_get("eventstv.php", {"d": date_string(date_value), "s": sport})
     tv_dict = {}
     
     if not data:
@@ -157,28 +201,75 @@ def parse_uk_time(event):
 def build_home_page():
     now_uk = datetime.now(UK_TIMEZONE)
     today_str = date_string(now_uk.date())
-    tomorrow_str = date_string((now_uk + timedelta(days=1)).date())
     
     text = (
-        "⚽ <b>SPORT PULSE ALERTS</b>\n"
+        "🔥 <b>SPORT PULSE ALERTS</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Welcome to your Premier League Fixtures & TV Guide.\n\n"
+        "Welcome to your centralized sports hub.\n\n"
         f"🕒 <b>Current UK Time:</b> {now_uk.strftime('%H:%M - %A %d %b')}\n\n"
-        "Select an option below to view kick-off times and broadcast channels."
+        "Select a sport below to view fixtures and broadcast channels."
     )
     
     kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⚽ Today's Matches", callback_data=f"date:{today_str}"),
-            InlineKeyboardButton("📅 Tomorrow", callback_data=f"date:{tomorrow_str}")
+            InlineKeyboardButton("⚽ All Football", callback_data=f"date:{today_str}:football")
         ],
         [
-            InlineKeyboardButton("📺 Supported App Channels", callback_data="view_channels")
+            InlineKeyboardButton("🏉 Rugby", callback_data="menu:rugby"),
+            InlineKeyboardButton("🥊 Combat Sports", callback_data="menu:combat")
+        ],
+        [
+            InlineKeyboardButton("📺 Supported App Channels", callback_data="menu:channels")
         ]
     ])
     
     return text, kb
 
+def build_rugby_menu():
+    today_str = date_string(datetime.now(UK_TIMEZONE).date())
+    text = (
+        "🏉 <b>RUGBY FIXTURES</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Select a league or code below to view matches:"
+    )
+    
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🦘 NRL", callback_data=f"date:{today_str}:nrl"),
+            InlineKeyboardButton("🇬🇧 Super League", callback_data=f"date:{today_str}:superleague")
+        ],
+        [
+            InlineKeyboardButton("🏉 Rugby Union", callback_data=f"date:{today_str}:union")
+        ],
+        [
+            InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="menu:home")
+        ]
+    ])
+    
+    return text, kb
+
+def build_combat_menu():
+    today_str = date_string(datetime.now(UK_TIMEZONE).date())
+    text = (
+        "🥊 <b>COMBAT SPORTS</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Select an organization below to view events:"
+    )
+    
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🥋 UFC", callback_data=f"date:{today_str}:ufc"),
+            InlineKeyboardButton("🥊 Boxing", callback_data=f"date:{today_str}:boxing")
+        ],
+        [
+            InlineKeyboardButton("🤼 WWE", callback_data=f"date:{today_str}:wwe")
+        ],
+        [
+            InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="menu:home")
+        ]
+    ])
+    
+    return text, kb
 
 def build_channels_page():
     channel_list = "\n".join(f"• {c.title()}" for c in MY_CHANNELS)
@@ -196,26 +287,36 @@ def build_channels_page():
     
     return text, kb
 
-
-def build_pl_page(date_value):
-    events = get_premier_league_events(date_value)
-    tv_data = get_tv_channels(date_value)
+def build_fixtures_page(date_value, category):
+    meta = CATEGORIES.get(category)
+    if not meta:
+        return "❌ <b>Error:</b> Unknown category.", InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu:home")]])
+        
+    events = fetch_events(date_value, category)
+    tv_data = get_tv_channels(date_value, meta["sport"])
     
+    # Sort chronologically for display
     events.sort(key=parse_uk_time)
     
     text = (
-        f"🏆 <b>PREMIER LEAGUE FIXTURES</b>\n"
+        f"{meta['icon']} <b>{meta['title'].upper()} FIXTURES</b>\n"
         f"📅 <b>{pretty_date(date_value)}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     
     if not events:
-        text += "❌ <i>No Premier League matches scheduled for this date.</i>\n\n"
+        text += f"❌ <i>No {meta['title']} events scheduled for this date.</i>\n\n"
     else:
         for idx, event in enumerate(events, 1):
-            home = html.escape(event.get("strHomeTeam") or "Home")
-            away = html.escape(event.get("strAwayTeam") or "Away")
+            home = html.escape(str(event.get("strHomeTeam") or ""))
+            away = html.escape(str(event.get("strAwayTeam") or ""))
             
+            # Combat sports don't typically use traditional teams, so fallback to the Event Name
+            if not home or not away or home == "None" or away == "None":
+                match_title = html.escape(str(event.get("strEvent") or "TBA Match"))
+            else:
+                match_title = f"{home} vs {away}"
+                
             dt = parse_uk_time(event)
             time_str = dt.strftime("%H:%M") if dt.year != 2099 else "TBC"
             
@@ -230,7 +331,7 @@ def build_pl_page(date_value):
                     tv_text += f"\n   └ <i>+{len(channels)-6} more feeds</i>"
             
             text += (
-                f"<b>{idx}. {home} vs {away}</b>\n"
+                f"<b>{idx}. {match_title}</b>\n"
                 f"⏰ <b>Kick-off:</b> {time_str} UK\n"
                 f"{tv_text}\n\n"
             )
@@ -239,15 +340,22 @@ def build_pl_page(date_value):
     prev_day_str = date_string(date_value - timedelta(days=1))
     next_day_str = date_string(date_value + timedelta(days=1))
     
+    # Smart back button routing based on the category you are viewing
+    back_target = "menu:home"
+    if category in ["nrl", "superleague", "union"]:
+        back_target = "menu:rugby"
+    elif category in ["ufc", "boxing", "wwe"]:
+        back_target = "menu:combat"
+        
     kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{prev_day_str}"),
-            InlineKeyboardButton("📅 Today", callback_data=f"date:{today_str}"),
-            InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{next_day_str}")
+            InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{prev_day_str}:{category}"),
+            InlineKeyboardButton("📅 Today", callback_data=f"date:{today_str}:{category}"),
+            InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{next_day_str}:{category}")
         ],
         [
-            InlineKeyboardButton("🔄 Refresh", callback_data=f"date:{date_string(date_value)}"),
-            InlineKeyboardButton("🏠 Main Menu", callback_data="menu:home")
+            InlineKeyboardButton("🔄 Refresh", callback_data=f"date:{date_string(date_value)}:{category}"),
+            InlineKeyboardButton("⬅️ Back", callback_data=back_target)
         ]
     ])
     
@@ -271,16 +379,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, kb = build_home_page()
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
+            
+        if data == "menu:rugby":
+            text, kb = build_rugby_menu()
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+            return
+            
+        if data == "menu:combat":
+            text, kb = build_combat_menu()
+            await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+            return
 
-        if data == "view_channels":
+        if data == "view_channels" or data == "menu:channels":
             text, kb = build_channels_page()
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
 
         if data.startswith("date:"):
-            date_str = data.split(":")[1]
+            parts = data.split(":")
+            date_str = parts[1]
+            category = parts[2]
+            
             target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            text, kb = build_pl_page(target_date)
+            text, kb = build_fixtures_page(target_date, category)
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
 
@@ -306,9 +427,8 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
-    logger.info("Bot starting with updated navigation menus...")
+    logger.info("Bot starting with expanded subfolders...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
-    
