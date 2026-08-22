@@ -84,13 +84,125 @@ def fetch_live_football():
     if not isinstance(events, list):
         return []
 
-    filtered = []
+    return [
+        event
+        for event in events
+        if str(event.get("idLeague") or "") in LIVE_LEAGUES
+    ]
 
-    for event in events:
-        if str(event.get("idLeague") or "") in LIVE_LEAGUES:
-            filtered.append(event)
 
-    return filtered
+# ============================================================
+# LIVE GOAL SCORERS - EVENT TIMELINE
+# ============================================================
+
+def fetch_goal_scorers(event_id):
+    if not event_id:
+        return []
+
+    url = (
+        "https://www.thesportsdb.com/api/v2/json/lookup/"
+        f"event_timeline/{event_id}"
+    )
+
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "X-API-KEY": bot_core.SPORTSDB_API_KEY,
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as error:
+        bot_core.logger.warning(
+            "Timeline request failed for event %s: %s",
+            event_id,
+            error,
+        )
+        return []
+
+    if isinstance(data, list):
+        timeline = data
+    elif isinstance(data, dict):
+        timeline = (
+            data.get("timeline")
+            or data.get("events")
+            or data.get("event")
+            or data.get("results")
+            or []
+        )
+    else:
+        timeline = []
+
+    if not isinstance(timeline, list):
+        return []
+
+    goals = []
+
+    for item in timeline:
+        if not isinstance(item, dict):
+            continue
+
+        event_type = str(
+            item.get("strTimeline")
+            or item.get("strType")
+            or item.get("type")
+            or item.get("strEvent")
+            or ""
+        ).lower()
+
+        detail = str(
+            item.get("strTimelineDetail")
+            or item.get("strDetail")
+            or item.get("detail")
+            or ""
+        ).lower()
+
+        if "goal" not in event_type and "goal" not in detail:
+            continue
+
+        player = (
+            item.get("strPlayer")
+            or item.get("strPlayerName")
+            or item.get("strName")
+            or item.get("player")
+            or "Unknown scorer"
+        )
+
+        minute = (
+            item.get("intTime")
+            or item.get("strTime")
+            or item.get("intMinute")
+            or item.get("strMinute")
+            or item.get("time")
+            or ""
+        )
+
+        team = (
+            item.get("strTeam")
+            or item.get("strTeamName")
+            or item.get("team")
+            or ""
+        )
+
+        player_text = html.escape(str(player))
+        minute_text = str(minute).strip()
+        team_text = html.escape(str(team).strip())
+
+        if minute_text:
+            minute_text = minute_text.replace("'", "")
+            line = f"⚽ {html.escape(minute_text)}' {player_text}"
+        else:
+            line = f"⚽ {player_text}"
+
+        if team_text:
+            line += f" — {team_text}"
+
+        if line not in goals:
+            goals.append(line)
+
+    return goals
 
 
 def build_live_page():
@@ -163,6 +275,12 @@ def build_live_page():
                 lines.append(
                     f"⏱ {html.escape(progress)}"
                 )
+
+            event_id = str(event.get("idEvent") or "")
+            goals = fetch_goal_scorers(event_id)
+
+            if goals:
+                lines.extend(goals)
 
         text = "\n".join(lines)
 
