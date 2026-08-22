@@ -25,6 +25,76 @@ bot_core.ALLOWED_LOCATIONS = [
 
 
 # ============================================================
+# COMPACT GROUP LANDING CARD
+# ============================================================
+
+def build_compact_group_card(bot_username):
+    text = (
+        "🏟️ <b>SPORTS BOT</b>\n"
+        "<b>FIXTURES • TV • LIVE SPORT</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "⚽ Premier League • Championship\n"
+        "🌍 La Liga • Serie A • Bundesliga • Ligue 1\n"
+        "🏉 Rugby • 🥊 Combat • ⛳ Golf • 🎯 Darts\n"
+        "📺 TV listings • 🕒 UK times\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🔒 <b>PRIVATE MATCH CENTRE</b>\n"
+        "📩 Tap below for fixtures, TV & live scores."
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton(
+                "⚡ OPEN MATCH CENTRE",
+                url=f"https://t.me/{bot_username}?start=open",
+            )
+        ]]
+    )
+
+    return text, keyboard
+
+
+async def start_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    chat = update.effective_chat
+    message = update.effective_message
+
+    if not chat or not message:
+        return
+
+    if chat.type in ["group", "supergroup"]:
+        chat_id = str(chat.id)
+        thread_id = (
+            str(message.message_thread_id)
+            if message.message_thread_id
+            else None
+        )
+
+        allowed_location = any(
+            chat_id.endswith(location["chat_id"])
+            and thread_id == location["topic_id"]
+            for location in bot_core.ALLOWED_LOCATIONS
+        )
+
+        if not allowed_location:
+            return
+
+        bot_info = await context.bot.get_me()
+        text, keyboard = build_compact_group_card(bot_info.username)
+
+        await message.reply_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+        return
+
+    await bot_core.start(update, context)
+
+
+# ============================================================
 # HOME PAGE PATCH: ADD LIVE NOW WITHOUT TOUCHING THE CORE FILE
 # ============================================================
 
@@ -376,32 +446,10 @@ async def preview_group(
         return
 
     bot_info = await context.bot.get_me()
-    bot_username = bot_info.username
-
-    group_text = (
-        "🏟️ <b>SPORTS BOT</b>\n"
-        "<b>FIXTURES • TV • LIVE SPORT</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "⚽ Premier League • Championship\n"
-        "🌍 La Liga • Serie A • Bundesliga • Ligue 1\n"
-        "🏉 Rugby • 🥊 Combat • ⛳ Golf • 🎯 Darts\n"
-        "📺 TV & streaming listings • 🕒 UK times\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "🔒 <b>PRIVATE MATCH CENTRE</b>\n"
-        "📩 Tap below for your fixtures & TV guide."
-    )
-
-    keyboard = InlineKeyboardMarkup(
-        [[
-            InlineKeyboardButton(
-                "⚡ OPEN MATCH CENTRE",
-                url=f"https://t.me/{bot_username}?start=open",
-            )
-        ]]
-    )
+    text, keyboard = build_compact_group_card(bot_info.username)
 
     await message.reply_text(
-        group_text,
+        text,
         reply_markup=keyboard,
         parse_mode="HTML",
     )
@@ -424,7 +472,7 @@ def main():
     )
 
     application.add_handler(
-        CommandHandler("start", bot_core.start)
+        CommandHandler("start", start_handler)
     )
 
     application.add_handler(
