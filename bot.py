@@ -105,8 +105,6 @@ def _extract_live_events(data):
 
 
 def fetch_live_sport(api_sport):
-    # Rugby is taken from the all-sports feed because TheSportsDB's current
-    # live-score data identifies each event with strSport="Rugby".
     endpoint = "all" if api_sport == "rugby" else api_sport
     url = f"https://www.thesportsdb.com/api/v2/json/livescore/{endpoint}"
     try:
@@ -116,12 +114,8 @@ def fetch_live_sport(api_sport):
     except Exception as error:
         bot_core.logger.error("Live score request failed for %s: %s", api_sport, error)
         return None
-
     if api_sport == "rugby":
-        return [
-            event for event in events
-            if str(event.get("strSport") or "").strip().lower() == "rugby"
-        ]
+        return [event for event in events if str(event.get("strSport") or "").strip().lower() == "rugby"]
     return events
 
 
@@ -176,20 +170,6 @@ def fetch_confirmed_goals(event_id, max_goals=None):
     if isinstance(max_goals, int) and max_goals >= 0:
         goals = goals[:max_goals]
     return goals
-
-
-def fetch_goal_scorers(event_id, max_goals=None):
-    goals = fetch_confirmed_goals(event_id, max_goals=max_goals)
-    lines = []
-    for goal in goals:
-        minute = goal["minute"]
-        player = html.escape(goal["player"])
-        team = html.escape(goal["team"])
-        line = f"⚽ {html.escape(minute)}' {player}" if minute else f"⚽ {player}"
-        if team:
-            line += f" — {team}"
-        lines.append(line)
-    return lines
 
 
 def event_title(event):
@@ -278,11 +258,7 @@ def build_match_centre(event_id, league_id):
         unassigned = [g for g in goals if g not in home_goals and g not in away_goals]
         home_score = "–" if hs in (None, "") else html.escape(str(hs))
         away_score = "–" if as_ in (None, "") else html.escape(str(as_))
-        lines = [
-            "🏟️ <b>MATCH CENTRE</b>", "━━━━━━━━━━━━━━━━━━━━",
-            f"🏆 {html.escape(league_name)}", f"⏱ {progress}", "",
-            f"🏠 <b>{home}</b>   <b>{home_score}</b>",
-        ]
+        lines = ["🏟️ <b>MATCH CENTRE</b>", "━━━━━━━━━━━━━━━━━━━━", f"🏆 {html.escape(league_name)}", f"⏱ {progress}", "", f"🏠 <b>{home}</b>   <b>{home_score}</b>"]
         if home_goals:
             lines.extend(_goal_line(goal) for goal in home_goals)
         elif hs not in (None, "", 0, "0"):
@@ -375,6 +351,38 @@ async def preview_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
+async def debug_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    message = update.effective_message
+    if not chat or not message or chat.type != "private":
+        return
+    url = "https://www.thesportsdb.com/api/v2/json/livescore/all"
+    try:
+        response = requests.get(url, headers={"X-API-KEY": bot_core.SPORTSDB_API_KEY}, timeout=20)
+        response.raise_for_status()
+        events = _extract_live_events(response.json())
+    except Exception as error:
+        await message.reply_text(f"❌ DEBUG LIVE failed: {html.escape(str(error))}", parse_mode="HTML")
+        return
+    if not events:
+        await message.reply_text("🧪 <b>DEBUG LIVE</b>\n━━━━━━━━━━━━━━━━━━━━\nThe API returned 0 live events.", parse_mode="HTML")
+        return
+    summary = {}
+    for event in events:
+        sport = str(event.get("strSport") or "(blank)").strip()
+        league_id = str(event.get("idLeague") or "?").strip()
+        league = str(event.get("strLeague") or "Unknown league").strip()
+        key = (sport, league_id, league)
+        summary[key] = summary.get(key, 0) + 1
+    lines = ["🧪 <b>DEBUG LIVE</b>", "━━━━━━━━━━━━━━━━━━━━", f"Total live events: <b>{len(events)}</b>", "", "<b>Sports / leagues returned:</b>"]
+    for (sport, league_id, league), count in sorted(summary.items(), key=lambda x: (x[0][0].lower(), x[0][2].lower()))[:60]:
+        lines.append(f"• {html.escape(sport)} | {html.escape(league)} | ID {html.escape(league_id)} | {count}")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3950] + "\n…truncated"
+    await message.reply_text(text, parse_mode="HTML")
+
+
 def main():
     bot_core.logger.info("Starting Sports Bot...")
     health_thread = threading.Thread(target=bot_core.start_health_server, daemon=True)
@@ -382,6 +390,7 @@ def main():
     application = Application.builder().token(bot_core.TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("previewgroup", preview_group))
+    application.add_handler(CommandHandler("debuglive", debug_live))
     application.add_handler(CallbackQueryHandler(callback_router))
     application.add_error_handler(bot_core.error_handler)
     bot_core.logger.info("Sports Bot is online.")
