@@ -48,7 +48,7 @@ ALLOWED_LOCATIONS = [
     },
     {
         "chat_id": "2523097986",
-        "topic_id": "12121",
+        "topic_id": "1",
     },
 ]
 
@@ -1695,15 +1695,6 @@ async def start(
 
     if not chat or not message:
         return
-
-    # Diagnostic logging: records every /start before any group/topic lock
-    logger.info(
-        "START RECEIVED | chat_id=%s | thread_id=%s | type=%s | text=%r",
-        chat.id,
-        message.message_thread_id,
-        chat.type,
-        message.text,
-    )
 
     # ========================================================
     # GROUP MODE
