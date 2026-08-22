@@ -25,7 +25,7 @@ if not TELEGRAM_TOKEN or not SPORTSDB_API_KEY:
     raise RuntimeError("Missing TELEGRAM_TOKEN or SPORTSDB_API_KEY. Check your Bunny.net environment variables.")
 
 # ============================================================
-# HEALTH CHECK
+# BUNNY.NET HEALTH CHECK SERVER
 # ============================================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -33,11 +33,14 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot is running and healthy!")
-    def log_message(self, format, *args): pass
+    def log_message(self, format, *args): 
+        pass
 
 def start_health_server():
     port = int(os.getenv("PORT", 8080))
-    HTTPServer(("0.0.0.0", port), HealthCheckHandler).serve_forever()
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info("Health check server listening on port %s", port)
+    server.serve_forever()
 
 # ============================================================
 # API & DATA
@@ -52,8 +55,11 @@ def sportsdb_get(endpoint, params=None):
         logger.error(f"SportsDB Error: {e}")
         return None
 
-def date_string(d): return d.strftime("%Y-%m-%d")
-def pretty_date(d): return d.strftime("%A %d %B %Y")
+def date_string(d): 
+    return d.strftime("%Y-%m-%d")
+
+def pretty_date(d): 
+    return d.strftime("%A %d %B %Y")
 
 def get_premier_league_events(date_value):
     # Fetch all soccer for the day
@@ -65,14 +71,12 @@ def get_premier_league_events(date_value):
     
     pl_events = []
     for e in data["events"]:
-        league_id = str(e.get("idLeague") or "")
-        league_name = (e.get("strLeague") or "").lower()
-        
-        # 4328 is the official ID for the English Premier League
-        if league_id == "4328" or "premier league" in league_name:
+        # STRICT FILTER: 4328 is the ONLY ID for the English Premier League.
+        if str(e.get("idLeague")) == "4328":
             pl_events.append(e)
             
-    return pl_events
+    # Hard limit to 15 matches to guarantee it never breaches Telegram's character limit
+    return pl_events[:15]
 
 def get_tv_channels(date_value):
     data = sportsdb_get("eventstv.php", {"d": date_string(date_value), "s": "Soccer"})
@@ -159,10 +163,11 @@ def build_pl_page(date_value):
             text += f"{idx}. 🕒 <b>{time_str} UK</b>\n⚽ <b>{home} vs {away}</b>\n{tv_text}\n\n"
             
     # Simple, direct navigation
+    today_str = date_string(datetime.now(UK_TIMEZONE).date())
     kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{date_string(date_value - timedelta(days=1))}"),
-            InlineKeyboardButton("Today", callback_data=f"date:{date_string(datetime.now(UK_TIMEZONE).date())}"),
+            InlineKeyboardButton("Today", callback_data=f"date:{today_str}"),
             InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{date_string(date_value + timedelta(days=1))}")
         ]
     ])
@@ -199,14 +204,18 @@ async def error_handler(update, context):
 # MAIN
 # ============================================================
 def main():
+    # 1. Start the health check for Bunny.net
     threading.Thread(target=start_health_server, daemon=True).start()
     
+    # 2. Build the bot application
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
+    # 3. Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
+    # 4. Start polling
     logger.info("Bot starting in Premier League-only mode...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
