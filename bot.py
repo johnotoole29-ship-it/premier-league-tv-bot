@@ -94,15 +94,7 @@ def build_live_football_menu():
     ])
 
 
-def fetch_live_sport(api_sport):
-    url = f"https://www.thesportsdb.com/api/v2/json/livescore/{api_sport}"
-    try:
-        response = requests.get(url, headers={"X-API-KEY": bot_core.SPORTSDB_API_KEY}, timeout=20)
-        response.raise_for_status()
-        data = response.json()
-    except Exception as error:
-        bot_core.logger.error("Live score request failed for %s: %s", api_sport, error)
-        return None
+def _extract_live_events(data):
     if isinstance(data, list):
         events = data
     elif isinstance(data, dict):
@@ -110,6 +102,27 @@ def fetch_live_sport(api_sport):
     else:
         events = []
     return events if isinstance(events, list) else []
+
+
+def fetch_live_sport(api_sport):
+    # Rugby is taken from the all-sports feed because TheSportsDB's current
+    # live-score data identifies each event with strSport="Rugby".
+    endpoint = "all" if api_sport == "rugby" else api_sport
+    url = f"https://www.thesportsdb.com/api/v2/json/livescore/{endpoint}"
+    try:
+        response = requests.get(url, headers={"X-API-KEY": bot_core.SPORTSDB_API_KEY}, timeout=20)
+        response.raise_for_status()
+        events = _extract_live_events(response.json())
+    except Exception as error:
+        bot_core.logger.error("Live score request failed for %s: %s", api_sport, error)
+        return None
+
+    if api_sport == "rugby":
+        return [
+            event for event in events
+            if str(event.get("strSport") or "").strip().lower() == "rugby"
+        ]
+    return events
 
 
 def fetch_live_football_league(league_id):
@@ -122,7 +135,6 @@ def fetch_live_football_league(league_id):
 def fetch_confirmed_goals(event_id, max_goals=None):
     if not event_id:
         return []
-
     url = f"{bot_core.SPORTSDB_BASE}/{bot_core.SPORTSDB_API_KEY}/lookuptimeline.php"
     try:
         response = requests.get(url, params={"id": event_id}, timeout=15)
@@ -131,67 +143,38 @@ def fetch_confirmed_goals(event_id, max_goals=None):
     except Exception as error:
         bot_core.logger.warning("Timeline request failed for event %s: %s", event_id, error)
         return []
-
     timeline = data.get("timeline") or [] if isinstance(data, dict) else []
     if not isinstance(timeline, list):
         return []
-
     rejected_terms = (
         "disallowed", "disallow", "no goal", "not a goal", "goal cancelled",
         "goal canceled", "cancelled goal", "canceled goal", "overturned",
         "ruled out", "offside goal", "goal ruled out", "var disallowed",
     )
-
     goals = []
     seen = set()
-
     for item in timeline:
         if not isinstance(item, dict):
             continue
-
         event_type = str(item.get("strTimeline") or item.get("strType") or item.get("type") or item.get("strEvent") or "").lower()
         detail = str(item.get("strTimelineDetail") or item.get("strDetail") or item.get("detail") or "").lower()
         all_text = " ".join(str(value).lower() for value in item.values() if value is not None)
-
         if any(term in all_text for term in rejected_terms):
             continue
         if "goal" not in event_type and "goal" not in detail:
             continue
         if ("var" in event_type or "offside" in event_type) and "goal" not in detail:
             continue
-
-        player = str(
-            item.get("strPlayer")
-            or item.get("strPlayerName")
-            or item.get("strName")
-            or item.get("player")
-            or "Unknown scorer"
-        ).strip()
-        minute = str(
-            item.get("intTime")
-            or item.get("strTime")
-            or item.get("intMinute")
-            or item.get("strMinute")
-            or item.get("time")
-            or ""
-        ).strip().replace("'", "")
-        team = str(
-            item.get("strTeam")
-            or item.get("strTeamName")
-            or item.get("team")
-            or ""
-        ).strip()
-
+        player = str(item.get("strPlayer") or item.get("strPlayerName") or item.get("strName") or item.get("player") or "Unknown scorer").strip()
+        minute = str(item.get("intTime") or item.get("strTime") or item.get("intMinute") or item.get("strMinute") or item.get("time") or "").strip().replace("'", "")
+        team = str(item.get("strTeam") or item.get("strTeamName") or item.get("team") or "").strip()
         key = (player.lower(), minute.lower(), team.lower())
         if key in seen:
             continue
         seen.add(key)
-
         goals.append({"player": player, "minute": minute, "team": team})
-
     if isinstance(max_goals, int) and max_goals >= 0:
         goals = goals[:max_goals]
-
     return goals
 
 
@@ -274,7 +257,6 @@ def _goal_line(goal):
 def build_match_centre(event_id, league_id):
     event = find_live_event(event_id)
     league_name = LIVE_LEAGUES.get(str(league_id), "Football")
-
     if not event:
         text = "🏟️ <b>MATCH CENTRE</b>\n━━━━━━━━━━━━━━━━━━━━\nThis match is no longer available in the live feed."
     else:
@@ -284,50 +266,37 @@ def build_match_centre(event_id, league_id):
         away = html.escape(away_raw)
         hs, as_ = event.get("intHomeScore"), event.get("intAwayScore")
         progress = html.escape(event_progress(event))
-
         max_goals = None
         try:
             if hs not in (None, "") and as_ not in (None, ""):
                 max_goals = max(0, int(hs) + int(as_))
         except (TypeError, ValueError):
             max_goals = None
-
         goals = fetch_confirmed_goals(event_id, max_goals=max_goals)
         home_goals = [g for g in goals if _same_team(g.get("team"), home_raw)]
         away_goals = [g for g in goals if _same_team(g.get("team"), away_raw)]
         unassigned = [g for g in goals if g not in home_goals and g not in away_goals]
-
         home_score = "–" if hs in (None, "") else html.escape(str(hs))
         away_score = "–" if as_ in (None, "") else html.escape(str(as_))
-
         lines = [
-            "🏟️ <b>MATCH CENTRE</b>",
-            "━━━━━━━━━━━━━━━━━━━━",
-            f"🏆 {html.escape(league_name)}",
-            f"⏱ {progress}",
-            "",
+            "🏟️ <b>MATCH CENTRE</b>", "━━━━━━━━━━━━━━━━━━━━",
+            f"🏆 {html.escape(league_name)}", f"⏱ {progress}", "",
             f"🏠 <b>{home}</b>   <b>{home_score}</b>",
         ]
-
         if home_goals:
             lines.extend(_goal_line(goal) for goal in home_goals)
         elif hs not in (None, "", 0, "0"):
             lines.append("⚽ Scorer details pending")
-
         lines.extend(["", f"✈️ <b>{away}</b>   <b>{away_score}</b>"])
-
         if away_goals:
             lines.extend(_goal_line(goal) for goal in away_goals)
         elif as_ not in (None, "", 0, "0"):
             lines.append("⚽ Scorer details pending")
-
         if unassigned:
             lines.extend(["", "⚽ <b>OTHER CONFIRMED GOALS</b>"])
             lines.extend(_goal_line(goal) for goal in unassigned)
-
         lines.extend(["", "━━━━━━━━━━━━━━━━━━━━", "🔴 <b>LIVE MATCH</b>"])
         text = "\n".join(lines)
-
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 REFRESH MATCH", callback_data=f"matchcentre:{event_id}:{league_id}")],
         [InlineKeyboardButton("⬅️ LIVE MATCHES", callback_data=f"live:league:{league_id}")],
@@ -349,7 +318,14 @@ def build_live_sport_page(sport_key):
     else:
         lines = [f"{sport['icon']} <b>{sport['title'].upper()} LIVE</b>", "━━━━━━━━━━━━━━━━━━━━"]
         for event in events[:20]:
-            lines.extend(["", f"🔴 <b>{html.escape(event_title(event))}</b>"])
+            home = str(event.get("strHomeTeam") or "").strip()
+            away = str(event.get("strAwayTeam") or "").strip()
+            hs, as_ = event.get("intHomeScore"), event.get("intAwayScore")
+            lines.append("")
+            if home and away and hs not in (None, "") and as_ not in (None, ""):
+                lines.append(f"🔴 <b>{html.escape(home)} {html.escape(str(hs))}–{html.escape(str(as_))} {html.escape(away)}</b>")
+            else:
+                lines.append(f"🔴 <b>{html.escape(event_title(event))}</b>")
             league = str(event.get("strLeague") or "").strip()
             if league:
                 lines.append(f"🏆 {html.escape(league)}")
