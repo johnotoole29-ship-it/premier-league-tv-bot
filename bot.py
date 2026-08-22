@@ -1,6 +1,6 @@
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
@@ -24,17 +24,11 @@ from telegram.ext import (
 # ============================================================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-SPORTSDB_API_KEY = (
-    os.getenv("SPORTSDB_API_KEY")
-    or os.getenv("FOOTBALL_API_KEY")
-)
-
-TIMEZONE = ZoneInfo("Europe/London")
+SPORTSDB_API_KEY = os.getenv("SPORTSDB_API_KEY")
 
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 
-PREMIER_LEAGUE_ID = "4328"
+UK_TIMEZONE = ZoneInfo("Europe/London")
 
 
 # ============================================================
@@ -46,26 +40,28 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-logger = logging.getLogger("SportPulseAlerts")
+logger = logging.getLogger("SportPulse")
 
 
 # ============================================================
-# STARTUP CHECK
+# CHECK ENVIRONMENT VARIABLES
 # ============================================================
 
 if not TELEGRAM_TOKEN:
     raise RuntimeError(
-        "TELEGRAM_TOKEN is missing."
+        "TELEGRAM_TOKEN is missing. "
+        "Add TELEGRAM_TOKEN to Bunny.net Environment Variables."
     )
 
 if not SPORTSDB_API_KEY:
     raise RuntimeError(
-        "SPORTSDB_API_KEY is missing."
+        "SPORTSDB_API_KEY is missing. "
+        "Add SPORTSDB_API_KEY to Bunny.net Environment Variables."
     )
 
 
 # ============================================================
-# SPORTS DB REQUEST
+# SPORTSDB REQUEST
 # ============================================================
 
 def sportsdb_get(endpoint, params=None):
@@ -113,54 +109,146 @@ def sportsdb_get(endpoint, params=None):
 
 def uk_now():
 
-    return datetime.now(TIMEZONE)
-
-
-def date_from_offset(offset):
-
-    date = (
-        uk_now().date()
-        + timedelta(days=offset)
+    return datetime.now(
+        UK_TIMEZONE
     )
 
-    return date.strftime(
+
+def uk_date():
+
+    return uk_now().date()
+
+
+def date_string(date_value):
+
+    return date_value.strftime(
         "%Y-%m-%d"
     )
 
 
-def display_date(date_string):
+def pretty_date(date_value):
+
+    return date_value.strftime(
+        "%A %d %B %Y"
+    )
+
+
+# ============================================================
+# CONVERT SPORTSDB TIME
+# ============================================================
+
+def event_datetime_uk(event):
+
+    # --------------------------------------------------------
+    # Best option:
+    # SportsDB strTimestamp
+    # --------------------------------------------------------
+
+    timestamp = event.get("strTimestamp")
+
+    if timestamp:
+
+        try:
+
+            # Unix timestamp
+            if str(timestamp).isdigit():
+
+                utc_time = datetime.fromtimestamp(
+                    int(timestamp),
+                    tz=timezone.utc,
+                )
+
+                return utc_time.astimezone(
+                    UK_TIMEZONE
+                )
+
+            # ISO timestamp
+            cleaned = str(timestamp).replace(
+                "Z",
+                "+00:00",
+            )
+
+            parsed = datetime.fromisoformat(
+                cleaned
+            )
+
+            # If SportsDB doesn't include timezone,
+            # treat it as UTC.
+            if parsed.tzinfo is None:
+
+                parsed = parsed.replace(
+                    tzinfo=timezone.utc
+                )
+
+            return parsed.astimezone(
+                UK_TIMEZONE
+            )
+
+        except Exception as error:
+
+            logger.warning(
+                "Could not parse strTimestamp %s: %s",
+                timestamp,
+                error,
+            )
+
+    # --------------------------------------------------------
+    # Fallback:
+    # SportsDB strTime is UTC
+    # --------------------------------------------------------
+
+    date_value = (
+        event.get("dateEvent")
+        or event.get("dateEventLocal")
+    )
+
+    time_value = (
+        event.get("strTime")
+        or event.get("strEventTime")
+        or "00:00:00"
+    )
+
+    if not date_value:
+        return None
 
     try:
 
-        date = datetime.strptime(
-            date_string,
-            "%Y-%m-%d",
+        clean_time = str(time_value)[:8]
+
+        if len(clean_time) == 5:
+            clean_time += ":00"
+
+        utc_datetime = datetime.strptime(
+            f"{date_value} {clean_time}",
+            "%Y-%m-%d %H:%M:%S",
+        ).replace(
+            tzinfo=timezone.utc
         )
 
-        return date.strftime(
-            "%A %d %B %Y"
+        return utc_datetime.astimezone(
+            UK_TIMEZONE
         )
 
-    except Exception:
+    except Exception as error:
 
-        return date_string
+        logger.warning(
+            "Could not convert event time: %s",
+            error,
+        )
+
+        return None
 
 
 # ============================================================
-# PREMIER LEAGUE FIXTURES
+# GET FOOTBALL FIXTURES
 # ============================================================
 
-def get_premier_league_fixtures(date_string):
-
-    """
-    Get ONLY Premier League fixtures
-    for the requested date.
-    """
+def get_football_events(date_value):
 
     data = sportsdb_get(
         "eventsday.php",
         {
-            "d": date_string,
+            "d": date_string(date_value),
             "s": "Soccer",
         },
     )
@@ -171,66 +259,65 @@ def get_premier_league_fixtures(date_string):
 
     events = data.get(
         "events"
-    ) or []
+    )
 
-    fixtures = []
+    if not events:
+
+        return []
+
+    return events
+
+
+# ============================================================
+# GET PREMIER LEAGUE FIXTURES
+# ============================================================
+
+def get_premier_league_events(date_value):
+
+    events = get_football_events(
+        date_value
+    )
+
+    results = []
 
     for event in events:
 
         league = (
             event.get("strLeague")
             or ""
-        ).strip().lower()
+        ).lower()
 
-        if league == "english premier league":
+        if (
+            "premier league" in league
+            or
+            "english premier league" in league
+        ):
 
-            fixtures.append(event)
+            results.append(event)
 
-    fixtures.sort(
-        key=lambda event: (
-            event.get("strTime")
-            or event.get("strEventTime")
-            or "99:99:99"
-        )
-    )
-
-    return fixtures
+    return results
 
 
 # ============================================================
-# UK TV LISTINGS
+# GET UK TV CHANNELS
 # ============================================================
 
-def get_uk_tv_for_date(date_string):
-
-    """
-    Get UK TV listings for a specific date.
-
-    TheSportsDB supports filtering TV events by:
-        d = date
-        a = country
-        s = sport
-    """
+def get_uk_tv(date_value):
 
     data = sportsdb_get(
         "eventstv.php",
         {
-            "d": date_string,
-            "a": "United Kingdom",
+            "d": date_string(date_value),
             "s": "Soccer",
+            "a": "United_Kingdom",
         },
     )
 
     if not data:
 
-        logger.warning(
-            "No TV data returned for %s",
-            date_string,
-        )
-
         return {}
 
-    tv_events = (
+    broadcasts = (
         data.get("tvevents")
         or data.get("events")
         or []
@@ -238,90 +325,48 @@ def get_uk_tv_for_date(date_string):
 
     tv_by_event = {}
 
-    for item in tv_events:
+    for broadcast in broadcasts:
 
         event_id = (
-            item.get("idEvent")
-            or item.get("id")
+            broadcast.get("idEvent")
+            or broadcast.get("id")
         )
 
         if not event_id:
             continue
 
         channel = (
-            item.get("strChannel")
-            or item.get("strName")
-            or item.get("strEvent")
-        )
-
-        country = (
-            item.get("strCountry")
-            or item.get("strLocation")
-            or ""
-        )
-
-        if not channel:
-            continue
-
-        event_id = str(event_id)
-
-        tv_by_event.setdefault(
-            event_id,
-            [],
-        )
-
-        tv_by_event[event_id].append(
-            {
-                "channel": str(
-                    channel
-                ).strip(),
-
-                "country": str(
-                    country
-                ).strip(),
-            }
-        )
-
-    return tv_by_event
-
-
-# ============================================================
-# CLEAN TV CHANNELS
-# ============================================================
-
-def clean_channels(channels):
-
-    seen = set()
-
-    result = []
-
-    for item in channels:
-
-        channel = (
-            item.get("channel")
+            broadcast.get("strChannel")
+            or broadcast.get("strName")
             or ""
         ).strip()
 
         if not channel:
             continue
 
-        key = channel.lower()
+        event_key = str(
+            event_id
+        )
 
-        if key in seen:
-            continue
+        tv_by_event.setdefault(
+            event_key,
+            [],
+        )
 
-        seen.add(key)
+        if channel not in tv_by_event[event_key]:
 
-        result.append(channel)
+            tv_by_event[event_key].append(
+                channel
+            )
 
-    return result
+    return tv_by_event
 
 
 # ============================================================
-# GET TV FOR ONE MATCH
+# GET WORLDWIDE TV
 # ============================================================
 
-def get_tv_for_event(event, tv_by_event):
+def get_worldwide_tv(event):
 
     event_id = event.get(
         "idEvent"
@@ -331,212 +376,349 @@ def get_tv_for_event(event, tv_by_event):
 
         return []
 
-    event_id = str(event_id)
+    data = sportsdb_get(
+        "lookuptv.php",
+        {
+            "id": event_id,
+        },
+    )
+
+    if not data:
+
+        return []
+
+    broadcasts = (
+        data.get("tvevents")
+        or data.get("events")
+        or []
+    )
+
+    results = []
+
+    seen = set()
+
+    for broadcast in broadcasts:
+
+        channel = (
+            broadcast.get("strChannel")
+            or broadcast.get("strName")
+            or ""
+        ).strip()
+
+        country = (
+            broadcast.get("strCountry")
+            or broadcast.get("strLocation")
+            or "International"
+        ).strip()
+
+        if not channel:
+            continue
+
+        key = (
+            country.lower(),
+            channel.lower(),
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        results.append(
+            {
+                "country": country,
+                "channel": channel,
+            }
+        )
+
+    return results
+
+
+# ============================================================
+# UK TV DISPLAY
+# ============================================================
+
+def uk_tv_text(
+    event,
+    tv_by_event,
+):
+
+    event_id = str(
+        event.get("idEvent")
+        or ""
+    )
 
     channels = tv_by_event.get(
         event_id,
         [],
     )
 
-    return clean_channels(
-        channels
-    )
-
-
-# ============================================================
-# FORMAT TV
-# ============================================================
-
-def format_tv(event, tv_by_event):
-
-    channels = get_tv_for_event(
-        event,
-        tv_by_event,
-    )
-
     if not channels:
 
-        return (
-            "📺 **UK TV:** "
-            "Not currently listed"
-        )
+        return "📺 **UK TV:** TBC"
 
     lines = [
         "📺 **UK TV:**"
     ]
 
-    for channel in channels[:6]:
+    for channel in channels[:8]:
 
         lines.append(
             f"• {channel}"
         )
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines
+    )
 
 
 # ============================================================
-# MATCH TIME
+# MATCH TEXT
 # ============================================================
 
-def match_time(event):
+def match_text(
+    event,
+    tv_by_event,
+    number=None,
+):
 
-    value = (
-        event.get("strTime")
-        or event.get("strEventTime")
+    home = (
+        event.get("strHomeTeam")
+        or "Home"
     )
 
-    if not value:
-
-        return "TBC"
-
-    return value[:5]
-
-
-# ============================================================
-# BUILD FIXTURE TEXT
-# ============================================================
-
-def build_fixture_page(date_string):
-
-    fixtures = get_premier_league_fixtures(
-        date_string
+    away = (
+        event.get("strAwayTeam")
+        or "Away"
     )
 
-    # Get UK TV listings ONCE for this date.
-    # This is important so we don't make a TV API
-    # request for every single fixture.
-
-    tv_by_event = get_uk_tv_for_date(
-        date_string
+    event_time = event_datetime_uk(
+        event
     )
 
-    lines = []
+    if event_time:
 
-    lines.append(
-        f"📅 **{display_date(date_string)}**"
-    )
-
-    lines.append(
-        "🏆 **Premier League**"
-    )
-
-    lines.append("")
-
-    if not fixtures:
-
-        lines.append(
-            "📭 **No Premier League fixtures today.**"
+        time_text = event_time.strftime(
+            "%H:%M"
         )
 
-        return "\n".join(lines)
+    else:
 
-    lines.append(
-        f"⚽ **{len(fixtures)} fixture"
-        f"{'s' if len(fixtures) != 1 else ''}**"
+        time_text = "TBC"
+
+    prefix = ""
+
+    if number is not None:
+
+        prefix = f"{number}. "
+
+    text = (
+        f"{prefix}"
+        f"🕒 **{time_text} UK**\n"
+        f"⚽ **{home} vs {away}**\n"
+        f"{uk_tv_text(event, tv_by_event)}"
     )
 
-    lines.append("")
+    return text
+
+
+# ============================================================
+# MAIN FIXTURE PAGE
+# ============================================================
+
+def fixtures_page(
+    date_value,
+    mode="premier",
+):
+
+    if mode == "premier":
+
+        events = get_premier_league_events(
+            date_value
+        )
+
+        title = "🏆 Premier League"
+
+    else:
+
+        events = get_football_events(
+            date_value
+        )
+
+        title = "⚽ Football"
+
+    # --------------------------------------------------------
+    # Sort by UK time
+    # --------------------------------------------------------
+
+    events.sort(
+        key=lambda event: (
+            event_datetime_uk(event)
+            or datetime.max.replace(
+                tzinfo=UK_TIMEZONE
+            )
+        )
+    )
+
+    # --------------------------------------------------------
+    # TV listings
+    # --------------------------------------------------------
+
+    tv_by_event = get_uk_tv(
+        date_value
+    )
+
+    # --------------------------------------------------------
+    # Header
+    # --------------------------------------------------------
+
+    text = (
+        f"📅 **{pretty_date(date_value)}**\n"
+        f"{title}\n\n"
+    )
+
+    if not events:
+
+        text += (
+            "❌ **No fixtures found.**\n\n"
+            "Try the next day."
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Previous Day",
+                        callback_data=f"day:{date_string(date_value - timedelta(days=1))}:{mode}",
+                    ),
+                    InlineKeyboardButton(
+                        "Next Day ➡️",
+                        callback_data=f"day:{date_string(date_value + timedelta(days=1))}:{mode}",
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Back",
+                        callback_data="home",
+                    )
+                ],
+            ]
+        )
+
+        return text, keyboard
+
+    # --------------------------------------------------------
+    # Don't dump hundreds of fixtures
+    # --------------------------------------------------------
+
+    # Premier League normally only has a small number.
+    #
+    # For all football we deliberately show the first 20.
+    # This keeps Telegram usable.
+    display_events = events[:20]
+
+    text += (
+        f"📋 **{len(events)} fixture"
+        f"{'s' if len(events) != 1 else ''}**\n\n"
+    )
 
     for index, event in enumerate(
-        fixtures,
+        display_events,
         start=1,
     ):
 
-        home = (
-            event.get("strHomeTeam")
-            or "Home"
-        )
-
-        away = (
-            event.get("strAwayTeam")
-            or "Away"
-        )
-
-        time = match_time(event)
-
-        lines.append(
-            f"**{index}. {time} — "
-            f"{home} vs {away}**"
-        )
-
-        lines.append(
-            format_tv(
+        text += (
+            match_text(
                 event,
                 tv_by_event,
+                index,
             )
+            + "\n\n"
         )
 
-        lines.append("")
+    if len(events) > 20:
 
-    return "\n".join(lines).strip()
+        text += (
+            f"ℹ️ Showing first 20 of "
+            f"{len(events)} fixtures.\n\n"
+        )
 
-
-# ============================================================
-# MAIN MENU
-# ============================================================
-
-def main_menu():
-
-    keyboard = [
-
-        [
-            InlineKeyboardButton(
-                "📅 Today",
-                callback_data="day:0",
-            ),
-
-            InlineKeyboardButton(
-                "📅 Tomorrow",
-                callback_data="day:1",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "📆 Next 7 Days",
-                callback_data="next7",
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🔄 Refresh",
-                callback_data="refresh",
-            ),
-        ],
-
-    ]
-
-    return InlineKeyboardMarkup(
-        keyboard
-    )
-
-
-# ============================================================
-# DAY NAVIGATION
-# ============================================================
-
-def day_menu(offset):
+    # --------------------------------------------------------
+    # Navigation
+    # --------------------------------------------------------
 
     keyboard = [
 
         [
             InlineKeyboardButton(
-                "◀️ Previous Day",
-                callback_data=f"day:{offset - 1}",
+                "⬅️ Previous Day",
+                callback_data=(
+                    f"day:"
+                    f"{date_string(date_value - timedelta(days=1))}:"
+                    f"{mode}"
+                ),
             ),
 
             InlineKeyboardButton(
-                "▶️ Next Day",
-                callback_data=f"day:{offset + 1}",
+                "Next Day ➡️",
+                callback_data=(
+                    f"day:"
+                    f"{date_string(date_value + timedelta(days=1))}:"
+                    f"{mode}"
+                ),
             ),
         ],
 
         [
             InlineKeyboardButton(
-                "🔙 Back",
+                "🌍 View Match TV",
+                callback_data="tv_help",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "⬅️ Back",
                 callback_data="home",
-            ),
+            )
+        ],
+    ]
+
+    return (
+        text,
+        InlineKeyboardMarkup(
+            keyboard
+        ),
+    )
+
+
+# ============================================================
+# HOME MENU
+# ============================================================
+
+def home_keyboard():
+
+    keyboard = [
+
+        [
+            InlineKeyboardButton(
+                "🏆 Premier League",
+                callback_data="premier_today",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "⚽ All Football",
+                callback_data="football_today",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📺 TV Channels",
+                callback_data="tv_help",
+            )
         ],
 
     ]
@@ -545,18 +727,15 @@ def day_menu(offset):
         keyboard
     )
 
-
-# ============================================================
-# HOME
-# ============================================================
 
 def home_text():
 
     return (
         "🔥 **SPORT PULSE ALERTS**\n\n"
-        "⚽ **Premier League Fixtures**\n\n"
-        "📺 UK TV channels included\n\n"
-        "🇬🇧 All times are UK time."
+        "⚽ Football fixtures and TV channels\n\n"
+        "Choose an option below.\n\n"
+        "🕒 All match times are shown in "
+        "**UK time**."
     )
 
 
@@ -571,149 +750,67 @@ async def start(
 
     await update.message.reply_text(
         home_text(),
+        reply_markup=home_keyboard(),
         parse_mode="Markdown",
-        reply_markup=main_menu(),
     )
 
 
 # ============================================================
-# SHOW DAY
+# SHOW FIXTURES
 # ============================================================
 
-async def show_day(
+async def show_fixtures(
     query,
-    offset,
+    date_value,
+    mode,
 ):
 
-    date_string = date_from_offset(
-        offset
-    )
+    await query.answer()
 
-    text = build_fixture_page(
-        date_string
-    )
+    try:
 
-    await query.edit_message_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=day_menu(offset),
-    )
+        await query.edit_message_text(
+            "⏳ **Loading fixtures and TV channels...**",
+            parse_mode="Markdown",
+        )
+
+        text, keyboard = fixtures_page(
+            date_value,
+            mode,
+        )
+
+        await query.edit_message_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+
+    except Exception as error:
+
+        logger.exception(
+            "Fixture error: %s",
+            error,
+        )
+
+        await query.edit_message_text(
+            "❌ **Something went wrong.**\n\n"
+            "Please try again.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Back",
+                            callback_data="home",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
 
 
 # ============================================================
-# NEXT 7 DAYS
-# ============================================================
-
-async def show_next_7_days(query):
-
-    lines = []
-
-    lines.append(
-        "📆 **NEXT 7 DAYS**"
-    )
-
-    lines.append(
-        "🏆 **Premier League**"
-    )
-
-    lines.append("")
-
-    found = False
-
-    for offset in range(7):
-
-        date_string = date_from_offset(
-            offset
-        )
-
-        fixtures = get_premier_league_fixtures(
-            date_string
-        )
-
-        if not fixtures:
-            continue
-
-        found = True
-
-        # TV listings for this particular date
-
-        tv_by_event = get_uk_tv_for_date(
-            date_string
-        )
-
-        lines.append(
-            f"📅 **{display_date(date_string)}**"
-        )
-
-        for event in fixtures:
-
-            home = (
-                event.get("strHomeTeam")
-                or "Home"
-            )
-
-            away = (
-                event.get("strAwayTeam")
-                or "Away"
-            )
-
-            time = match_time(event)
-
-            lines.append(
-                f"• **{time}** — "
-                f"{home} vs {away}"
-            )
-
-            tv_channels = get_tv_for_event(
-                event,
-                tv_by_event,
-            )
-
-            if tv_channels:
-
-                lines.append(
-                    "  📺 **UK TV:** "
-                    + ", ".join(
-                        tv_channels[:4]
-                    )
-                )
-
-            else:
-
-                lines.append(
-                    "  📺 **UK TV:** "
-                    "Not currently listed"
-                )
-
-        lines.append("")
-
-    if not found:
-
-        lines.append(
-            "📭 No Premier League fixtures "
-            "found in the next 7 days."
-        )
-
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "🔙 Back",
-                    callback_data="home",
-                )
-            ]
-        ]
-    )
-
-    await query.edit_message_text(
-        "\n".join(lines),
-        parse_mode="Markdown",
-        reply_markup=keyboard,
-    )
-
-
-# ============================================================
-# BUTTON HANDLER
+# CALLBACK BUTTONS
 # ============================================================
 
 async def button_handler(
@@ -723,75 +820,135 @@ async def button_handler(
 
     query = update.callback_query
 
-    await query.answer()
-
     data = query.data
 
+    # --------------------------------------------------------
     # HOME
+    # --------------------------------------------------------
 
     if data == "home":
 
+        await query.answer()
+
         await query.edit_message_text(
             home_text(),
+            reply_markup=home_keyboard(),
             parse_mode="Markdown",
-            reply_markup=main_menu(),
         )
 
         return
 
-    # DAY
+    # --------------------------------------------------------
+    # PREMIER LEAGUE TODAY
+    # --------------------------------------------------------
+
+    if data == "premier_today":
+
+        await show_fixtures(
+            query,
+            uk_date(),
+            "premier",
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # FOOTBALL TODAY
+    # --------------------------------------------------------
+
+    if data == "football_today":
+
+        await show_fixtures(
+            query,
+            uk_date(),
+            "football",
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # PREVIOUS / NEXT DAY
+    # --------------------------------------------------------
 
     if data.startswith("day:"):
 
+        await query.answer()
+
+        parts = data.split(":")
+
+        if len(parts) != 3:
+
+            return
+
+        date_text = parts[1]
+        mode = parts[2]
+
         try:
 
-            offset = int(
-                data.split(":")[1]
-            )
+            selected_date = datetime.strptime(
+                date_text,
+                "%Y-%m-%d",
+            ).date()
 
-        except Exception:
+        except ValueError:
 
-            offset = 0
+            return
 
-        # Keep navigation sensible
-
-        offset = max(
-            -30,
-            min(offset, 30)
-        )
-
-        await show_day(
+        await show_fixtures(
             query,
-            offset,
+            selected_date,
+            mode,
         )
 
         return
 
-    # NEXT 7 DAYS
+    # --------------------------------------------------------
+    # TV HELP
+    # --------------------------------------------------------
 
-    if data == "next7":
+    if data == "tv_help":
 
-        await show_next_7_days(
-            query
+        await query.answer()
+
+        text = (
+            "📺 **TV CHANNELS**\n\n"
+            "The bot checks TheSportsDB's TV listings "
+            "for each football fixture.\n\n"
+            "If a UK broadcaster is listed, it appears "
+            "directly underneath the match.\n\n"
+            "If no UK broadcaster is currently listed, "
+            "you will see:\n\n"
+            "📺 **UK TV: TBC**\n\n"
+            "Tap a match's TV button in future versions "
+            "to see worldwide broadcasters."
         )
 
-        return
-
-    # REFRESH
-
-    if data == "refresh":
-
-        text = build_fixture_page(
-            date_from_offset(0)
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Back",
+                        callback_data="home",
+                    )
+                ]
+            ]
         )
 
         await query.edit_message_text(
             text,
+            reply_markup=keyboard,
             parse_mode="Markdown",
-            reply_markup=day_menu(0),
         )
 
         return
+
+    # --------------------------------------------------------
+    # UNKNOWN BUTTON
+    # --------------------------------------------------------
+
+    await query.answer(
+        "This button is no longer available."
+    )
 
 
 # ============================================================
@@ -804,58 +961,9 @@ async def error_handler(
 ):
 
     logger.exception(
-        "Telegram error: %s",
-        context.error,
+        "Telegram error:",
+        exc_info=context.error,
     )
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-
-    logger.info(
-        "Starting SportPulseAlerts..."
-    )
-
-    application = (
-        Application
-        .builder()
-        .token(TELEGRAM_TOKEN)
-        .build()
-    )
-
-    application.add_handler(
-        CommandHandler(
-            "start",
-            start,
-        )
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(
-            button_handler
-        )
-    )
-
-    application.add_error_handler(
-        error_handler
-    )
-
-    logger.info(
-        "Bot is running."
-    )
-
-    application.run_polling(
-        drop_pending_updates=True
-    )
-
-
-# ============================================================
-# RUN
-# ============================================================
-
-if __name__ == "__main__":
-
-    main()
+# ================================================
