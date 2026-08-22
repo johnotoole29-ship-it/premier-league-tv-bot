@@ -23,6 +23,12 @@ from telegram.ext import (
 
 
 # ============================================================
+# SPORTS BOT
+# FIXTURES • TV • LIVE SPORT
+# ============================================================
+
+
+# ============================================================
 # CONFIG
 # ============================================================
 
@@ -30,14 +36,16 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SPORTSDB_API_KEY = os.getenv("SPORTSDB_API_KEY")
 
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
+
 UK_TIMEZONE = ZoneInfo("Europe/London")
 
+# Telegram group/topic lock
 ALLOWED_CHAT_ID = "3988874271"
 ALLOWED_TOPIC_ID = "10394"
 
 
 # ============================================================
-# SUPPORTED TV CHANNELS
+# SUPPORTED TV / STREAMING CHANNELS
 # ============================================================
 
 MY_CHANNELS = [
@@ -66,88 +74,118 @@ MY_CHANNELS = [
 
 
 # ============================================================
-# CATEGORIES
+# SPORTS / LEAGUE CATEGORIES
 # ============================================================
 
 CATEGORIES = {
+
+    # --------------------------------------------------------
+    # FOOTBALL
+    # --------------------------------------------------------
+
     "football_prem": {
         "icon": "🏴",
         "title": "Premier League",
         "sport": "Soccer",
         "league_id": "4328",
     },
+
     "football_champ": {
         "icon": "🏴",
         "title": "Championship",
         "sport": "Soccer",
         "league_id": "4329",
     },
+
     "football_laliga": {
         "icon": "🇪🇸",
         "title": "La Liga",
         "sport": "Soccer",
         "league_id": "4335",
     },
+
     "football_seriea": {
         "icon": "🇮🇹",
         "title": "Serie A",
         "sport": "Soccer",
         "league_id": "4332",
     },
+
     "football_bundesliga": {
         "icon": "🇩🇪",
         "title": "Bundesliga",
         "sport": "Soccer",
         "league_id": "4331",
     },
+
     "football_ligue1": {
         "icon": "🇫🇷",
         "title": "Ligue 1",
         "sport": "Soccer",
         "league_id": "4334",
     },
+
+    # --------------------------------------------------------
+    # RUGBY
+    # --------------------------------------------------------
+
     "nrl": {
         "icon": "🦘",
         "title": "NRL",
         "sport": "Rugby",
         "league_id": "4416",
     },
+
     "superleague": {
         "icon": "🇬🇧",
         "title": "Super League",
         "sport": "Rugby",
         "league_id": "4415",
     },
+
     "union": {
         "icon": "🏉",
         "title": "Rugby Union",
         "sport": "Rugby",
         "league_id": None,
     },
+
+    # --------------------------------------------------------
+    # COMBAT
+    # --------------------------------------------------------
+
     "ufc": {
         "icon": "🥋",
         "title": "UFC",
         "sport": "Fighting",
         "league_id": None,
     },
+
     "boxing": {
         "icon": "🥊",
         "title": "Boxing",
         "sport": "Fighting",
         "league_id": None,
     },
+
     "wwe": {
         "icon": "🤼",
         "title": "WWE",
         "sport": "Fighting",
         "league_id": None,
     },
+
+    # --------------------------------------------------------
+    # OTHER SPORTS
+    # --------------------------------------------------------
+
     "golf": {
         "icon": "⛳",
         "title": "Golf",
         "sport": "Golf",
         "league_id": None,
     },
+
     "darts": {
         "icon": "🎯",
         "title": "Darts",
@@ -162,7 +200,12 @@ CATEGORIES = {
 # ============================================================
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=(
+        "%(asctime)s - "
+        "%(name)s - "
+        "%(levelname)s - "
+        "%(message)s"
+    ),
     level=logging.INFO,
 )
 
@@ -174,23 +217,36 @@ logger = logging.getLogger("SportsBot")
 # ============================================================
 
 if not TELEGRAM_TOKEN:
-    raise RuntimeError("TELEGRAM_TOKEN is missing from Bunny.net.")
+    raise RuntimeError(
+        "TELEGRAM_TOKEN is missing from Bunny.net."
+    )
 
 if not SPORTSDB_API_KEY:
-    raise RuntimeError("SPORTSDB_API_KEY is missing from Bunny.net.")
+    raise RuntimeError(
+        "SPORTSDB_API_KEY is missing from Bunny.net."
+    )
 
 
 # ============================================================
-# BUNNY HEALTH SERVER
+# BUNNY.NET HEALTH SERVER
 # ============================================================
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+
+        self.send_header(
+            "Content-Type",
+            "text/plain",
+        )
+
         self.end_headers()
-        self.wfile.write(b"Sports Bot is running.")
+
+        self.wfile.write(
+            b"Sports Bot is running."
+        )
 
     def log_message(self, format, *args):
         pass
@@ -199,13 +255,19 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def start_health_server():
 
     port = int(
-        os.getenv("PORT", "8080")
+        os.getenv(
+            "PORT",
+            "8080",
+        )
     )
 
     try:
 
         server = HTTPServer(
-            ("0.0.0.0", port),
+            (
+                "0.0.0.0",
+                port,
+            ),
             HealthCheckHandler,
         )
 
@@ -228,7 +290,10 @@ def start_health_server():
 # SPORTSDB API
 # ============================================================
 
-def sportsdb_get(endpoint, params=None):
+def sportsdb_get(
+    endpoint,
+    params=None,
+):
 
     url = (
         f"{SPORTSDB_BASE}/"
@@ -271,14 +336,18 @@ def sportsdb_get(endpoint, params=None):
 # DATE HELPERS
 # ============================================================
 
-def date_string(date_value):
+def date_string(
+    date_value,
+):
 
     return date_value.strftime(
         "%Y-%m-%d"
     )
 
 
-def pretty_date(date_value):
+def pretty_date(
+    date_value,
+):
 
     return date_value.strftime(
         "%A %d %B %Y"
@@ -289,7 +358,9 @@ def pretty_date(date_value):
 # UK TIME CONVERSION
 # ============================================================
 
-def parse_uk_time(event):
+def parse_uk_time(
+    event,
+):
 
     fallback = datetime(
         2099,
@@ -329,8 +400,10 @@ def parse_uk_time(event):
             "%Y-%m-%d %H:%M:%S",
         )
 
-        utc_datetime = utc_datetime.replace(
-            tzinfo=timezone.utc
+        utc_datetime = (
+            utc_datetime.replace(
+                tzinfo=timezone.utc
+            )
         )
 
         return utc_datetime.astimezone(
@@ -351,9 +424,14 @@ def parse_uk_time(event):
 # EVENT FILTERING
 # ============================================================
 
-def fetch_events(date_value, category):
+def fetch_events(
+    date_value,
+    category,
+):
 
-    meta = CATEGORIES.get(category)
+    meta = CATEGORIES.get(
+        category
+    )
 
     if not meta:
         return []
@@ -361,7 +439,9 @@ def fetch_events(date_value, category):
     data = sportsdb_get(
         "eventsday.php",
         {
-            "d": date_string(date_value),
+            "d": date_string(
+                date_value
+            ),
             "s": meta["sport"],
         },
     )
@@ -369,9 +449,14 @@ def fetch_events(date_value, category):
     if not data:
         return []
 
-    events = data.get("events")
+    events = data.get(
+        "events"
+    )
 
-    if not isinstance(events, list):
+    if not isinstance(
+        events,
+        list,
+    ):
         return []
 
     filtered = []
@@ -379,17 +464,23 @@ def fetch_events(date_value, category):
     for event in events:
 
         league_id = str(
-            event.get("idLeague")
+            event.get(
+                "idLeague"
+            )
             or ""
         )
 
         league_name = str(
-            event.get("strLeague")
+            event.get(
+                "strLeague"
+            )
             or ""
         ).strip().lower()
 
         event_name = str(
-            event.get("strEvent")
+            event.get(
+                "strEvent"
+            )
             or ""
         ).strip().lower()
 
@@ -399,39 +490,55 @@ def fetch_events(date_value, category):
             + event_name
         )
 
+        # ====================================================
         # FOOTBALL
+        # ====================================================
 
         if category == "football_prem":
 
             if league_id == "4328":
-                filtered.append(event)
+                filtered.append(
+                    event
+                )
 
         elif category == "football_champ":
 
             if league_id == "4329":
-                filtered.append(event)
+                filtered.append(
+                    event
+                )
 
         elif category == "football_laliga":
 
             if league_id == "4335":
-                filtered.append(event)
+                filtered.append(
+                    event
+                )
 
         elif category == "football_seriea":
 
             if league_id == "4332":
-                filtered.append(event)
+                filtered.append(
+                    event
+                )
 
         elif category == "football_bundesliga":
 
             if league_id == "4331":
-                filtered.append(event)
+                filtered.append(
+                    event
+                )
 
         elif category == "football_ligue1":
 
             if league_id == "4334":
-                filtered.append(event)
+                filtered.append(
+                    event
+                )
 
-        # RUGBY
+        # ====================================================
+        # RUGBY LEAGUE
+        # ====================================================
 
         elif category == "nrl":
 
@@ -440,7 +547,10 @@ def fetch_events(date_value, category):
                 or "national rugby league" in combined
                 or "nrl" in combined
             ):
-                filtered.append(event)
+
+                filtered.append(
+                    event
+                )
 
         elif category == "superleague":
 
@@ -448,7 +558,14 @@ def fetch_events(date_value, category):
                 league_id == "4415"
                 or "super league" in combined
             ):
-                filtered.append(event)
+
+                filtered.append(
+                    event
+                )
+
+        # ====================================================
+        # RUGBY UNION
+        # ====================================================
 
         elif category == "union":
 
@@ -464,56 +581,94 @@ def fetch_events(date_value, category):
             )
 
             if (
-                league_id not in ["4415", "4416"]
+                league_id not in [
+                    "4415",
+                    "4416",
+                ]
                 and not is_rugby_league
             ):
-                filtered.append(event)
 
-        # COMBAT
+                filtered.append(
+                    event
+                )
+
+        # ====================================================
+        # UFC
+        # ====================================================
 
         elif category == "ufc":
 
             if (
                 "ufc" in combined
-                or "ultimate fighting championship" in combined
+                or
+                "ultimate fighting championship"
+                in combined
             ):
-                filtered.append(event)
+
+                filtered.append(
+                    event
+                )
+
+        # ====================================================
+        # BOXING
+        # ====================================================
 
         elif category == "boxing":
 
             if "boxing" in combined:
-                filtered.append(event)
+
+                filtered.append(
+                    event
+                )
+
+        # ====================================================
+        # WWE
+        # ====================================================
 
         elif category == "wwe":
 
             if (
                 "wwe" in combined
-                or "world wrestling entertainment" in combined
+                or
+                "world wrestling entertainment"
+                in combined
             ):
-                filtered.append(event)
 
-        # OTHER
+                filtered.append(
+                    event
+                )
+
+        # ====================================================
+        # GOLF / DARTS
+        # ====================================================
 
         elif category in [
             "golf",
             "darts",
         ]:
 
-            filtered.append(event)
+            filtered.append(
+                event
+            )
 
     return filtered[:20]
 
 
 # ============================================================
-# TV CHANNELS
+# TV CHANNEL DATA
 # ============================================================
 
-def get_tv_channels(date_value, sport):
+def get_tv_channels(
+    date_value,
+    sport,
+):
 
     data = sportsdb_get(
         "eventstv.php",
         {
-            "d": date_string(date_value),
+            "d": date_string(
+                date_value
+            ),
             "s": sport,
         },
     )
@@ -529,30 +684,48 @@ def get_tv_channels(date_value, sport):
         or []
     )
 
-    if not isinstance(broadcasts, list):
+    if not isinstance(
+        broadcasts,
+        list,
+    ):
         return tv_dict
 
     for broadcast in broadcasts:
 
         event_id = str(
-            broadcast.get("idEvent")
-            or broadcast.get("id")
+            broadcast.get(
+                "idEvent"
+            )
+            or broadcast.get(
+                "id"
+            )
             or ""
         )
 
         channel = str(
-            broadcast.get("strChannel")
-            or broadcast.get("strName")
+            broadcast.get(
+                "strChannel"
+            )
+            or broadcast.get(
+                "strName"
+            )
             or ""
         ).strip()
 
         country = str(
-            broadcast.get("strCountry")
-            or broadcast.get("strLocation")
+            broadcast.get(
+                "strCountry"
+            )
+            or broadcast.get(
+                "strLocation"
+            )
             or "International"
         ).strip()
 
-        if not event_id or not channel:
+        if not event_id:
+            continue
+
+        if not channel:
             continue
 
         channel_lower = (
@@ -560,8 +733,11 @@ def get_tv_channels(date_value, sport):
         )
 
         supported = any(
-            supported_channel in channel_lower
-            for supported_channel in MY_CHANNELS
+            supported_channel
+            in channel_lower
+
+            for supported_channel
+            in MY_CHANNELS
         )
 
         if not supported:
@@ -576,9 +752,13 @@ def get_tv_channels(date_value, sport):
             f"{country}: {channel}"
         )
 
-        if entry not in tv_dict[event_id]:
+        if entry not in tv_dict[
+            event_id
+        ]:
 
-            tv_dict[event_id].append(
+            tv_dict[
+                event_id
+            ].append(
                 entry
             )
 
@@ -586,7 +766,7 @@ def get_tv_channels(date_value, sport):
 
 
 # ============================================================
-# HOME PAGE
+# PREMIUM PRIVATE HOME PAGE
 # ============================================================
 
 def build_home_page():
@@ -598,56 +778,79 @@ def build_home_page():
     today = now_uk.date()
 
     text = (
-        "⚡ <b>SPORTS BOT</b>\n"
-        "<i>Your fixture & broadcast companion</i>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📅 <b>{now_uk.strftime('%A %d %B %Y')}</b>\n"
-        f"🕒 <b>{now_uk.strftime('%H:%M')} UK</b>\n\n"
-        "Choose a sport below."
+        "🏟️ <b>SPORTS BOT</b>\n"
+        "<b>YOUR MATCHDAY CENTRE</b>\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
+        "⚡ <b>LIVE SPORTS DIRECTORY</b>\n"
+        "\n"
+        f"📅 {now_uk.strftime('%A %d %B %Y')}\n"
+        f"🕒 {now_uk.strftime('%H:%M')} UK\n"
+        "\n"
+        "📺 Fixtures • TV • Streaming\n"
+        "🌍 Major leagues & sports\n"
+        "🇬🇧 All times shown in UK time\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
+        "<b>👇 CHOOSE YOUR SPORT</b>"
     )
 
     keyboard = InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
-                    "⚽ Football",
+                    "⚽ FOOTBALL",
                     callback_data="menu:football",
                 )
             ],
+
             [
                 InlineKeyboardButton(
-                    "🏉 Rugby",
+                    "🏉 RUGBY",
                     callback_data="menu:rugby",
                 ),
+
                 InlineKeyboardButton(
-                    "🥊 Combat",
+                    "🥊 COMBAT",
                     callback_data="menu:combat",
                 ),
             ],
+
             [
                 InlineKeyboardButton(
-                    "⛳ Golf",
+                    "⛳ GOLF",
                     callback_data=(
-                        f"date:{date_string(today)}:golf"
+                        f"date:"
+                        f"{date_string(today)}:"
+                        f"golf"
                     ),
                 ),
+
                 InlineKeyboardButton(
-                    "🎯 Darts",
+                    "🎯 DARTS",
                     callback_data=(
-                        f"date:{date_string(today)}:darts"
+                        f"date:"
+                        f"{date_string(today)}:"
+                        f"darts"
                     ),
                 ),
             ],
+
             [
                 InlineKeyboardButton(
-                    "📺 Supported Channels",
+                    "📺 TV & STREAMING GUIDE",
                     callback_data="menu:channels",
                 )
             ],
         ]
     )
 
-    return text, keyboard
+    return (
+        text,
+        keyboard,
+    )
 
 
 # ============================================================
@@ -663,9 +866,15 @@ def build_football_menu():
     )
 
     text = (
-        "⚽ <b>FOOTBALL HUB</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "<i>Select a competition:</i>"
+        "⚽ <b>FOOTBALL CENTRE</b>\n"
+        "<i>Europe's major leagues</i>\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
+        "🏆 <b>SELECT A COMPETITION</b>\n"
+        "\n"
+        "Choose a league to view fixtures, "
+        "UK kick-off times and available broadcasters."
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -673,43 +882,76 @@ def build_football_menu():
             [
                 InlineKeyboardButton(
                     "🏴 Premier League",
-                    callback_data=f"date:{today}:football_prem",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"football_prem"
+                    ),
                 ),
+
                 InlineKeyboardButton(
                     "🏴 Championship",
-                    callback_data=f"date:{today}:football_champ",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"football_champ"
+                    ),
                 ),
             ],
+
             [
                 InlineKeyboardButton(
                     "🇪🇸 La Liga",
-                    callback_data=f"date:{today}:football_laliga",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"football_laliga"
+                    ),
                 ),
+
                 InlineKeyboardButton(
                     "🇮🇹 Serie A",
-                    callback_data=f"date:{today}:football_seriea",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"football_seriea"
+                    ),
                 ),
             ],
+
             [
                 InlineKeyboardButton(
                     "🇩🇪 Bundesliga",
-                    callback_data=f"date:{today}:football_bundesliga",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"football_bundesliga"
+                    ),
                 ),
+
                 InlineKeyboardButton(
                     "🇫🇷 Ligue 1",
-                    callback_data=f"date:{today}:football_ligue1",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"football_ligue1"
+                    ),
                 ),
             ],
+
             [
                 InlineKeyboardButton(
-                    "⬅️ Main Menu",
+                    "🏠 MAIN MENU",
                     callback_data="menu:home",
                 )
             ],
         ]
     )
 
-    return text, keyboard
+    return (
+        text,
+        keyboard,
+    )
 
 
 # ============================================================
@@ -725,9 +967,12 @@ def build_rugby_menu():
     )
 
     text = (
-        "🏉 <b>RUGBY HUB</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "<i>Select a competition:</i>"
+        "🏉 <b>RUGBY CENTRE</b>\n"
+        "<i>League & Union</i>\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
+        "🏆 <b>SELECT A COMPETITION</b>"
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -735,29 +980,47 @@ def build_rugby_menu():
             [
                 InlineKeyboardButton(
                     "🦘 NRL",
-                    callback_data=f"date:{today}:nrl",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"nrl"
+                    ),
                 ),
+
                 InlineKeyboardButton(
-                    "🇬🇧 Super League",
-                    callback_data=f"date:{today}:superleague",
+                    "🇬🇧 SUPER LEAGUE",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"superleague"
+                    ),
                 ),
             ],
+
             [
                 InlineKeyboardButton(
-                    "🏉 Rugby Union",
-                    callback_data=f"date:{today}:union",
+                    "🏉 RUGBY UNION",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"union"
+                    ),
                 )
             ],
+
             [
                 InlineKeyboardButton(
-                    "⬅️ Main Menu",
+                    "🏠 MAIN MENU",
                     callback_data="menu:home",
                 )
             ],
         ]
     )
 
-    return text, keyboard
+    return (
+        text,
+        keyboard,
+    )
 
 
 # ============================================================
@@ -773,9 +1036,12 @@ def build_combat_menu():
     )
 
     text = (
-        "🥊 <b>COMBAT SPORTS</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "<i>Select a category:</i>"
+        "🥊 <b>COMBAT CENTRE</b>\n"
+        "<i>Fight nights & major events</i>\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
+        "🔥 <b>SELECT A CATEGORY</b>"
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -783,40 +1049,62 @@ def build_combat_menu():
             [
                 InlineKeyboardButton(
                     "🥋 UFC",
-                    callback_data=f"date:{today}:ufc",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"ufc"
+                    ),
                 ),
+
                 InlineKeyboardButton(
-                    "🥊 Boxing",
-                    callback_data=f"date:{today}:boxing",
+                    "🥊 BOXING",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"boxing"
+                    ),
                 ),
             ],
+
             [
                 InlineKeyboardButton(
                     "🤼 WWE",
-                    callback_data=f"date:{today}:wwe",
+                    callback_data=(
+                        f"date:"
+                        f"{today}:"
+                        f"wwe"
+                    ),
                 )
             ],
+
             [
                 InlineKeyboardButton(
-                    "⬅️ Main Menu",
+                    "🏠 MAIN MENU",
                     callback_data="menu:home",
                 )
             ],
         ]
     )
 
-    return text, keyboard
+    return (
+        text,
+        keyboard,
+    )
 
 
 # ============================================================
-# CHANNELS PAGE
+# SUPPORTED CHANNELS PAGE
 # ============================================================
 
 def build_channels_page():
 
     lines = [
-        "📺 <b>SUPPORTED CHANNELS</b>",
+        "📺 <b>TV & STREAMING GUIDE</b>",
+        "<i>Supported broadcast partners</i>",
+        "",
         "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "🌍 <b>AVAILABLE NETWORKS</b>",
         "",
     ]
 
@@ -826,18 +1114,22 @@ def build_channels_page():
             f"• {html.escape(channel.title())}"
         )
 
-    lines.append("")
-
-    lines.append(
-        "<i>Channels are shown when "
-        "TheSportsDB has them listed for the event.</i>"
+    lines.extend(
+        [
+            "",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "",
+            "ℹ️ <i>Channels appear against an event "
+            "when broadcast information is available "
+            "from the fixture data provider.</i>",
+        ]
     )
 
     keyboard = InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
-                    "⬅️ Main Menu",
+                    "🏠 MAIN MENU",
                     callback_data="menu:home",
                 )
             ]
@@ -845,13 +1137,15 @@ def build_channels_page():
     )
 
     return (
-        "\n".join(lines),
+        "\n".join(
+            lines
+        ),
         keyboard,
     )
 
 
 # ============================================================
-# FIXTURES PAGE
+# FIXTURE LIST
 # ============================================================
 
 def build_fixtures_page(
@@ -859,7 +1153,9 @@ def build_fixtures_page(
     category,
 ):
 
-    meta = CATEGORIES.get(category)
+    meta = CATEGORIES.get(
+        category
+    )
 
     if not meta:
 
@@ -869,7 +1165,7 @@ def build_fixtures_page(
                 [
                     [
                         InlineKeyboardButton(
-                            "🏠 Main Menu",
+                            "🏠 MAIN MENU",
                             callback_data="menu:home",
                         )
                     ]
@@ -889,8 +1185,12 @@ def build_fixtures_page(
     text = (
         f"{meta['icon']} "
         f"<b>{html.escape(meta['title'].upper())}</b>\n"
+        "<i>Fixture Centre</i>\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
         f"📅 <b>{pretty_date(date_value)}</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "\n"
     )
 
     buttons = []
@@ -898,30 +1198,41 @@ def build_fixtures_page(
     if not events:
 
         text += (
-            f"❌ No {html.escape(meta['title'])} "
-            "fixtures found for this date."
+            "📭 <b>NO FIXTURES FOUND</b>\n\n"
+            f"No {html.escape(meta['title'])} "
+            "events are currently listed for this date.\n\n"
+            "Use the navigation below to check another day."
         )
 
     else:
 
         text += (
-            "<i>Tap a fixture to view available TV channels.</i>\n\n"
+            f"⚡ <b>{len(events)} EVENT"
+            f"{'S' if len(events) != 1 else ''} FOUND</b>\n\n"
+            "<i>Select a fixture to open its Match Centre "
+            "and view broadcast information.</i>"
         )
 
         for event in events:
 
             home = str(
-                event.get("strHomeTeam")
+                event.get(
+                    "strHomeTeam"
+                )
                 or ""
             ).strip()
 
             away = str(
-                event.get("strAwayTeam")
+                event.get(
+                    "strAwayTeam"
+                )
                 or ""
             ).strip()
 
             event_name = str(
-                event.get("strEvent")
+                event.get(
+                    "strEvent"
+                )
                 or "Event"
             ).strip()
 
@@ -952,7 +1263,9 @@ def build_fixtures_page(
                 )
 
             event_id = str(
-                event.get("idEvent")
+                event.get(
+                    "idEvent"
+                )
                 or ""
             )
 
@@ -960,13 +1273,13 @@ def build_fixtures_page(
                 continue
 
             button_text = (
-                f"[{time_text}] {title}"
+                f"⚡ {time_text}  |  {title}"
             )
 
-            if len(button_text) > 50:
+            if len(button_text) > 52:
 
                 button_text = (
-                    button_text[:47]
+                    button_text[:49]
                     + "..."
                 )
 
@@ -975,7 +1288,8 @@ def build_fixtures_page(
                     InlineKeyboardButton(
                         button_text,
                         callback_data=(
-                            f"match:{event_id}:"
+                            f"match:"
+                            f"{event_id}:"
                             f"{date_string(date_value)}:"
                             f"{category}"
                         ),
@@ -989,12 +1303,16 @@ def build_fixtures_page(
 
     previous_day = (
         date_value
-        - timedelta(days=1)
+        - timedelta(
+            days=1
+        )
     )
 
     next_day = (
         date_value
-        + timedelta(days=1)
+        + timedelta(
+            days=1
+        )
     )
 
     football_categories = [
@@ -1020,40 +1338,50 @@ def build_fixtures_page(
 
     if category in football_categories:
 
-        back_target = "menu:football"
+        back_target = (
+            "menu:football"
+        )
 
     elif category in rugby_categories:
 
-        back_target = "menu:rugby"
+        back_target = (
+            "menu:rugby"
+        )
 
     elif category in combat_categories:
 
-        back_target = "menu:combat"
+        back_target = (
+            "menu:combat"
+        )
 
     else:
 
-        back_target = "menu:home"
+        back_target = (
+            "menu:home"
+        )
 
     buttons.append(
         [
             InlineKeyboardButton(
-                "⬅️ Prev",
+                "◀️ PREV",
                 callback_data=(
                     f"date:"
                     f"{date_string(previous_day)}:"
                     f"{category}"
                 ),
             ),
+
             InlineKeyboardButton(
-                "📅 Today",
+                "📅 TODAY",
                 callback_data=(
                     f"date:"
                     f"{date_string(today)}:"
                     f"{category}"
                 ),
             ),
+
             InlineKeyboardButton(
-                "Next ➡️",
+                "NEXT ▶️",
                 callback_data=(
                     f"date:"
                     f"{date_string(next_day)}:"
@@ -1066,15 +1394,16 @@ def build_fixtures_page(
     buttons.append(
         [
             InlineKeyboardButton(
-                "🔄 Refresh",
+                "🔄 REFRESH",
                 callback_data=(
                     f"date:"
                     f"{date_string(date_value)}:"
                     f"{category}"
                 ),
             ),
+
             InlineKeyboardButton(
-                "⬅️ Back",
+                "⬅️ BACK",
                 callback_data=back_target,
             ),
         ]
@@ -1089,7 +1418,7 @@ def build_fixtures_page(
 
 
 # ============================================================
-# MATCH DETAILS
+# MATCH CENTRE
 # ============================================================
 
 def build_match_details_page(
@@ -1098,7 +1427,9 @@ def build_match_details_page(
     category,
 ):
 
-    meta = CATEGORIES.get(category)
+    meta = CATEGORIES.get(
+        category
+    )
 
     if not meta:
 
@@ -1108,7 +1439,7 @@ def build_match_details_page(
                 [
                     [
                         InlineKeyboardButton(
-                            "🏠 Main Menu",
+                            "🏠 MAIN MENU",
                             callback_data="menu:home",
                         )
                     ]
@@ -1126,8 +1457,12 @@ def build_match_details_page(
             item
             for item in events
             if str(
-                item.get("idEvent")
-            ) == str(event_id)
+                item.get(
+                    "idEvent"
+                )
+            ) == str(
+                event_id
+            )
         ),
         None,
     )
@@ -1135,12 +1470,14 @@ def build_match_details_page(
     if not event:
 
         return (
-            "❌ <b>Event data is no longer available.</b>",
+            "❌ <b>EVENT UNAVAILABLE</b>\n\n"
+            "This fixture is no longer available "
+            "from the data provider.",
             InlineKeyboardMarkup(
                 [
                     [
                         InlineKeyboardButton(
-                            "⬅️ Back to Fixtures",
+                            "⬅️ BACK TO FIXTURES",
                             callback_data=(
                                 f"date:"
                                 f"{date_string(date_value)}:"
@@ -1153,17 +1490,23 @@ def build_match_details_page(
         )
 
     home = str(
-        event.get("strHomeTeam")
+        event.get(
+            "strHomeTeam"
+        )
         or ""
     ).strip()
 
     away = str(
-        event.get("strAwayTeam")
+        event.get(
+            "strAwayTeam"
+        )
         or ""
     ).strip()
 
     event_name = str(
-        event.get("strEvent")
+        event.get(
+            "strEvent"
+        )
         or "Event"
     ).strip()
 
@@ -1193,48 +1536,73 @@ def build_match_details_page(
             )
         )
 
+    venue = str(
+        event.get(
+            "strVenue"
+        )
+        or ""
+    ).strip()
+
     tv_data = get_tv_channels(
         date_value,
         meta["sport"],
     )
 
     channels = tv_data.get(
-        str(event_id),
+        str(
+            event_id
+        ),
         [],
     )
 
     text = (
-        f"{meta['icon']} <b>MATCH CENTRE</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🏆 <b>{html.escape(title)}</b>\n"
-        f"📅 {pretty_date(date_value)}\n"
-        f"🕒 {time_text} UK\n"
-        f"🏟️ {html.escape(meta['title'])}\n\n"
+        "🏟️ <b>MATCH CENTRE</b>\n"
+        f"<i>{html.escape(meta['title'])}</i>\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
+        f"{meta['icon']} <b>{html.escape(title)}</b>\n"
+        "\n"
+        f"📅 <b>{pretty_date(date_value)}</b>\n"
+        f"🕒 <b>{time_text} UK</b>\n"
+    )
+
+    if venue:
+
+        text += (
+            f"📍 {html.escape(venue)}\n"
+        )
+
+    text += (
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
     )
 
     if channels:
 
         text += (
-            "📺 <b>WATCH ON</b>\n\n"
+            "📺 <b>WHERE TO WATCH</b>\n\n"
         )
 
         for channel in channels:
 
             text += (
-                f"• {html.escape(channel)}\n"
+                f"▸ {html.escape(channel)}\n"
             )
 
     else:
 
         text += (
-            "📺 <b>TV:</b> "
-            "No supported channel currently listed."
+            "📺 <b>WHERE TO WATCH</b>\n\n"
+            "Broadcast information is not currently "
+            "available on a supported channel."
         )
 
     keyboard_rows = [
         [
             InlineKeyboardButton(
-                "⬅️ Back to Fixtures",
+                "⬅️ BACK TO FIXTURES",
                 callback_data=(
                     f"date:"
                     f"{date_string(date_value)}:"
@@ -1251,7 +1619,7 @@ def build_match_details_page(
         keyboard_rows.append(
             [
                 InlineKeyboardButton(
-                    "⚽ Football Hub",
+                    "⚽ FOOTBALL CENTRE",
                     callback_data="menu:football",
                 )
             ]
@@ -1266,7 +1634,7 @@ def build_match_details_page(
         keyboard_rows.append(
             [
                 InlineKeyboardButton(
-                    "🏉 Rugby Hub",
+                    "🏉 RUGBY CENTRE",
                     callback_data="menu:rugby",
                 )
             ]
@@ -1281,7 +1649,7 @@ def build_match_details_page(
         keyboard_rows.append(
             [
                 InlineKeyboardButton(
-                    "🥊 Combat Hub",
+                    "🥊 COMBAT CENTRE",
                     callback_data="menu:combat",
                 )
             ]
@@ -1290,7 +1658,7 @@ def build_match_details_page(
     keyboard_rows.append(
         [
             InlineKeyboardButton(
-                "🏠 Main Menu",
+                "🏠 MAIN MENU",
                 callback_data="menu:home",
             )
         ]
@@ -1305,7 +1673,7 @@ def build_match_details_page(
 
 
 # ============================================================
-# /START
+# /START HANDLER
 # ============================================================
 
 async def start(
@@ -1351,7 +1719,10 @@ async def start(
             == ALLOWED_TOPIC_ID
         )
 
-        if correct_group and correct_topic:
+        if (
+            correct_group
+            and correct_topic
+        ):
 
             bot_info = (
                 await context.bot.get_me()
@@ -1361,25 +1732,43 @@ async def start(
                 bot_info.username
             )
 
+            # =================================================
+            # PREMIUM GROUP LANDING CARD
+            # =================================================
+
             group_text = (
-                "⚡ <b>SPORTS BOT</b>\n"
-                "<i>Your fixture & broadcast companion</i>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n\n"
-                "📅 <b>Fixtures</b>\n"
-                "📺 <b>TV & streaming channels</b>\n"
-                "🌍 <b>Major leagues & sports</b>\n"
-                "🕒 <b>UK local times</b>\n\n"
-                "Everything is kept inside your private Match Centre "
-                "so the group stays clean and uncluttered.\n\n"
-                "📩 <b>Tap below and Sports Bot will send you "
-                "a private message.</b>"
+                "🏟️ <b>SPORTS BOT</b>\n"
+                "<b>FIXTURES • TV • LIVE SPORT</b>\n"
+                "\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "\n"
+                "⚡ <b>YOUR MATCHDAY COMPANION</b>\n"
+                "\n"
+                "⚽ Premier League & Championship\n"
+                "🌍 La Liga • Serie A • Bundesliga • Ligue 1\n"
+                "🏉 Rugby • 🥊 Combat • ⛳ Golf • 🎯 Darts\n"
+                "📺 TV & streaming broadcast listings\n"
+                "🕒 All fixtures shown in UK local time\n"
+                "\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "\n"
+                "🔒 <b>PRIVATE MATCH CENTRE</b>\n"
+                "\n"
+                "Your fixtures and TV guide are delivered "
+                "privately, keeping the group clean and "
+                "uncluttered.\n"
+                "\n"
+                "📩 <b>Tap below and Sports Bot will send "
+                "you a private message.</b>\n"
+                "\n"
+                "👇 <b>OPEN YOUR MATCH CENTRE</b>"
             )
 
             keyboard = InlineKeyboardMarkup(
                 [
                     [
                         InlineKeyboardButton(
-                            "🚀 Open Match Centre",
+                            "⚡ LAUNCH SPORTS BOT ⚡",
                             url=(
                                 f"https://t.me/"
                                 f"{bot_username}"
@@ -1424,7 +1813,9 @@ async def button_handler(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    query = update.callback_query
+    query = (
+        update.callback_query
+    )
 
     if not query:
         return
@@ -1438,11 +1829,19 @@ async def button_handler(
 
     try:
 
+        # ====================================================
+        # HOME
+        # ====================================================
+
         if data == "menu:home":
 
             text, keyboard = (
                 build_home_page()
             )
+
+        # ====================================================
+        # FOOTBALL
+        # ====================================================
 
         elif data == "menu:football":
 
@@ -1450,11 +1849,19 @@ async def button_handler(
                 build_football_menu()
             )
 
+        # ====================================================
+        # RUGBY
+        # ====================================================
+
         elif data == "menu:rugby":
 
             text, keyboard = (
                 build_rugby_menu()
             )
+
+        # ====================================================
+        # COMBAT
+        # ====================================================
 
         elif data == "menu:combat":
 
@@ -1462,11 +1869,19 @@ async def button_handler(
                 build_combat_menu()
             )
 
+        # ====================================================
+        # CHANNEL GUIDE
+        # ====================================================
+
         elif data == "menu:channels":
 
             text, keyboard = (
                 build_channels_page()
             )
+
+        # ====================================================
+        # FIXTURE DATE
+        # ====================================================
 
         elif data.startswith(
             "date:"
@@ -1500,6 +1915,10 @@ async def button_handler(
                 )
             )
 
+        # ====================================================
+        # MATCH CENTRE
+        # ====================================================
+
         elif data.startswith(
             "match:"
         ):
@@ -1515,9 +1934,17 @@ async def button_handler(
                     f"Invalid match callback: {data}"
                 )
 
-            event_id = parts[1]
-            date_text = parts[2]
-            category = parts[3]
+            event_id = (
+                parts[1]
+            )
+
+            date_text = (
+                parts[2]
+            )
+
+            category = (
+                parts[3]
+            )
 
             target_date = (
                 datetime.strptime(
@@ -1534,17 +1961,22 @@ async def button_handler(
                 )
             )
 
+        # ====================================================
+        # UNKNOWN CALLBACK
+        # ====================================================
+
         else:
 
             text = (
-                "⚠️ <b>Unknown menu option.</b>"
+                "⚠️ <b>OPTION UNAVAILABLE</b>\n\n"
+                "Please return to the main dashboard."
             )
 
             keyboard = InlineKeyboardMarkup(
                 [
                     [
                         InlineKeyboardButton(
-                            "🏠 Main Menu",
+                            "🏠 MAIN MENU",
                             callback_data="menu:home",
                         )
                     ]
@@ -1567,13 +1999,15 @@ async def button_handler(
         try:
 
             await query.edit_message_text(
-                "❌ <b>Something went wrong.</b>\n\n"
-                "Please return to the main menu.",
+                "❌ <b>SPORTS BOT ERROR</b>\n\n"
+                "Something went wrong while loading "
+                "this section.\n\n"
+                "Please return to the main dashboard.",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
                             InlineKeyboardButton(
-                                "🏠 Main Menu",
+                                "🏠 MAIN MENU",
                                 callback_data="menu:home",
                             )
                         ]
@@ -1616,6 +2050,7 @@ def main():
         "Starting Sports Bot..."
     )
 
+    # Bunny health endpoint
     health_thread = threading.Thread(
         target=start_health_server,
         daemon=True,
@@ -1623,13 +2058,17 @@ def main():
 
     health_thread.start()
 
+    # Telegram application
     application = (
         Application
         .builder()
-        .token(TELEGRAM_TOKEN)
+        .token(
+            TELEGRAM_TOKEN
+        )
         .build()
     )
 
+    # /start
     application.add_handler(
         CommandHandler(
             "start",
@@ -1637,12 +2076,14 @@ def main():
         )
     )
 
+    # Inline buttons
     application.add_handler(
         CallbackQueryHandler(
             button_handler
         )
     )
 
+    # Global error handler
     application.add_error_handler(
         error_handler
     )
