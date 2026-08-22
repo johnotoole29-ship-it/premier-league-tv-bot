@@ -21,22 +21,23 @@ UK_TIMEZONE = ZoneInfo("Europe/London")
 # ============================================================
 # MY APP CHANNELS (LOWERCASE)
 # ============================================================
-# Edit this list to match the channels your app provides.
-# Keep everything lowercase. Partial names (like "sky sports") 
-# will automatically match "Sky Sports Main Event", etc.
 MY_CHANNELS = [
-    "sky sports",
-    "tnt sports",
-    "amazon prime",
-    "usa network",
-    "peacock",
-    "optus sport",
-    "fubo",
-    "nbc",
-    "supermport",
-    "bein sports",
-    "astro supersport"
-    "Sanata Events"
+    "sky sports",       # UK
+    "stan sport",       # Australia
+    "fubo",             # Canada
+    "espn",             # Caribbean
+    "now prem",         # Hong Kong
+    "now 4k",           # Hong Kong
+    "star sports",      # India
+    "vidio",            # Indonesia
+    "coupang play",     # Korea
+    "astro",            # Malaysia
+    "bein sports",      # MENA
+    "sky sport",        # New Zealand
+    "hub premier",      # Singapore
+    "supersport",       # South Africa
+    "monomax",          # Thailand
+    "usa network"       # USA
 ]
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -241,3 +242,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
