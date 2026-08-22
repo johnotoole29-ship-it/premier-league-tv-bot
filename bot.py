@@ -124,7 +124,19 @@ def event_title(event):
 
 
 def event_progress(event):
-    return str(event.get("strProgress") or event.get("strStatus") or "LIVE").strip()
+    status = str(event.get("strStatus") or "").strip().upper()
+    progress = str(event.get("strProgress") or "").strip()
+    if status == "HT":
+        return "HALF-TIME"
+    if status in ("FT", "AET", "AOT"):
+        return "FULL-TIME" if status == "FT" else "AFTER EXTRA TIME"
+    if status in ("PEN", "PENS"):
+        return "PENALTIES"
+    if status in ("PST", "POST"):
+        return "POSTPONED"
+    if status in ("CANC", "CAN"):
+        return "CANCELLED"
+    return progress or status or "LIVE"
 
 
 def event_score_line(event):
@@ -218,17 +230,9 @@ def build_league_table_page(league_id):
     table = fetch_league_table(league_id)
 
     if table is None:
-        text = (
-            f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "⚠️ League table data is temporarily unavailable."
-        )
+        text = f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n━━━━━━━━━━━━━━━━━━━━\n⚠️ League table data is temporarily unavailable."
     elif not table:
-        text = (
-            f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "No standings are currently available from the data provider."
-        )
+        text = f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n━━━━━━━━━━━━━━━━━━━━\nNo standings are currently available from the data provider."
     else:
         rows = []
         for index, row in enumerate(table, start=1):
@@ -239,17 +243,13 @@ def build_league_table_page(league_id):
             played = _table_value(row, "intPlayed", "intGamesPlayed", "played")
             gd = _table_value(row, "intGoalDifference", "intGoalDiff", "goalDifference", default="0")
             pts = _table_value(row, "intPoints", "points", default="0")
-            short_team = team[:15]
-            rows.append(f"{pos:>2} {short_team:<15} {played:>2} {gd:>4} {pts:>3}")
-
+            rows.append(f"{pos:>2} {team[:15]:<15} {played:>2} {gd:>4} {pts:>3}")
         header = " # Team             P   GD Pts"
         table_text = "\n".join([header, *rows])
         text = (
             f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "<pre>"
-            f"{html.escape(table_text)}"
-            "</pre>"
+            f"<pre>{html.escape(table_text)}</pre>"
             "<i>P = Played • GD = Goal Difference • Pts = Points</i>"
         )
 
@@ -261,20 +261,64 @@ def build_league_table_page(league_id):
     return text, keyboard
 
 
-def fetch_confirmed_goals(event_id, max_goals=None):
-    if not event_id:
-        return []
-    url = f"{bot_core.SPORTSDB_BASE}/{bot_core.SPORTSDB_API_KEY}/lookuptimeline.php"
+def _v1_lookup(endpoint, event_id):
     try:
-        response = requests.get(url, params={"id": event_id}, timeout=15)
-        response.raise_for_status()
-        data = response.json()
+        data = bot_core.sportsdb_get(endpoint, {"id": str(event_id)})
+        return data if isinstance(data, dict) else {}
     except Exception as error:
-        bot_core.logger.warning("Timeline request failed for event %s: %s", event_id, error)
+        bot_core.logger.warning("%s failed for event %s: %s", endpoint, event_id, error)
+        return {}
+
+
+def fetch_event_details(event_id):
+    data = _v1_lookup("lookupevent.php", event_id)
+    events = data.get("events") or []
+    return events[0] if isinstance(events, list) and events and isinstance(events[0], dict) else {}
+
+
+def fetch_event_timeline(event_id):
+    data = _v1_lookup("lookuptimeline.php", event_id)
+    timeline = data.get("timeline") or []
+    return timeline if isinstance(timeline, list) else []
+
+
+def fetch_event_tv(event_id):
+    data = _v1_lookup("lookuptv.php", event_id)
+    broadcasts = data.get("tvevents") or data.get("tv") or data.get("events") or []
+    if not isinstance(broadcasts, list):
         return []
-    timeline = data.get("timeline") or [] if isinstance(data, dict) else []
-    if not isinstance(timeline, list):
-        return []
+    output = []
+    for item in broadcasts:
+        if not isinstance(item, dict):
+            continue
+        channel = str(item.get("strChannel") or item.get("strName") or "").strip()
+        country = str(item.get("strCountry") or item.get("strLocation") or "").strip()
+        if not channel:
+            continue
+        value = f"{country}: {channel}" if country else channel
+        if value not in output:
+            output.append(value)
+    return output[:8]
+
+
+def _timeline_text(item):
+    return " ".join(str(value).lower() for value in item.values() if value is not None)
+
+
+def _timeline_minute(item):
+    return str(item.get("intTime") or item.get("strTime") or item.get("intMinute") or item.get("strMinute") or item.get("time") or "").strip().replace("'", "")
+
+
+def _timeline_player(item):
+    return str(item.get("strPlayer") or item.get("strPlayerName") or item.get("strName") or item.get("player") or "").strip()
+
+
+def _timeline_team(item):
+    return str(item.get("strTeam") or item.get("strTeamName") or item.get("team") or "").strip()
+
+
+def fetch_confirmed_goals(event_id, max_goals=None):
+    timeline = fetch_event_timeline(event_id)
     rejected_terms = (
         "disallowed", "disallow", "no goal", "not a goal", "goal cancelled",
         "goal canceled", "cancelled goal", "canceled goal", "overturned",
@@ -287,16 +331,16 @@ def fetch_confirmed_goals(event_id, max_goals=None):
             continue
         event_type = str(item.get("strTimeline") or item.get("strType") or item.get("type") or item.get("strEvent") or "").lower()
         detail = str(item.get("strTimelineDetail") or item.get("strDetail") or item.get("detail") or "").lower()
-        all_text = " ".join(str(value).lower() for value in item.values() if value is not None)
+        all_text = _timeline_text(item)
         if any(term in all_text for term in rejected_terms):
             continue
         if "goal" not in event_type and "goal" not in detail:
             continue
         if ("var" in event_type or "offside" in event_type) and "goal" not in detail:
             continue
-        player = str(item.get("strPlayer") or item.get("strPlayerName") or item.get("strName") or item.get("player") or "Unknown scorer").strip()
-        minute = str(item.get("intTime") or item.get("strTime") or item.get("intMinute") or item.get("strMinute") or item.get("time") or "").strip().replace("'", "")
-        team = str(item.get("strTeam") or item.get("strTeamName") or item.get("team") or "").strip()
+        player = _timeline_player(item) or "Unknown scorer"
+        minute = _timeline_minute(item)
+        team = _timeline_team(item)
         key = (player.lower(), minute.lower(), team.lower())
         if key in seen:
             continue
@@ -305,6 +349,46 @@ def fetch_confirmed_goals(event_id, max_goals=None):
     if isinstance(max_goals, int) and max_goals >= 0:
         goals = goals[:max_goals]
     return goals
+
+
+def fetch_cards_and_subs(event_id):
+    cards = []
+    substitutions = []
+    seen_cards = set()
+    seen_subs = set()
+
+    for item in fetch_event_timeline(event_id):
+        if not isinstance(item, dict):
+            continue
+        all_text = _timeline_text(item)
+        minute = _timeline_minute(item)
+        player = _timeline_player(item) or "Player"
+        team = _timeline_team(item)
+
+        if "yellow" in all_text or "red card" in all_text or "redcard" in all_text:
+            icon = "🟥" if "red" in all_text and "yellow" not in all_text else "🟨"
+            key = (icon, player.lower(), minute.lower(), team.lower())
+            if key not in seen_cards:
+                seen_cards.add(key)
+                cards.append({"icon": icon, "player": player, "minute": minute, "team": team})
+
+        if "substitution" in all_text or "substitute" in all_text or "subbed" in all_text:
+            player_on = str(item.get("strPlayer2") or item.get("strPlayerIn") or item.get("strSubstitute") or item.get("player2") or "").strip()
+            player_off = str(item.get("strPlayer") or item.get("strPlayerOut") or item.get("player") or "").strip()
+            detail = str(item.get("strTimelineDetail") or item.get("strDetail") or "").strip()
+            label = ""
+            if player_on and player_off and player_on.lower() != player_off.lower():
+                label = f"{player_off} → {player_on}"
+            elif detail:
+                label = detail
+            else:
+                label = player_off or player_on or "Substitution"
+            key = (label.lower(), minute.lower(), team.lower())
+            if key not in seen_subs:
+                seen_subs.add(key)
+                substitutions.append({"label": label, "minute": minute, "team": team})
+
+    return cards[:12], substitutions[:12]
 
 
 def event_button_text(event):
@@ -359,49 +443,115 @@ def _goal_line(goal):
     return f"⚽ {minute}' {player}" if minute else f"⚽ {player}"
 
 
+def _incident_line(item, label_key="player"):
+    minute = html.escape(str(item.get("minute") or ""))
+    if label_key == "label":
+        label = html.escape(str(item.get("label") or "Substitution"))
+        return f"🔄 {minute}' {label}" if minute else f"🔄 {label}"
+    icon = item.get("icon") or "🟨"
+    player = html.escape(str(item.get("player") or "Player"))
+    return f"{icon} {minute}' {player}" if minute else f"{icon} {player}"
+
+
 def build_match_centre(event_id, league_id):
-    event = find_live_event(event_id)
-    league_name = LIVE_LEAGUES.get(str(league_id), "Football")
+    live_event = find_live_event(event_id)
+    details = fetch_event_details(event_id)
+    event = live_event or details
+    league_name = LIVE_LEAGUES.get(str(league_id), str(details.get("strLeague") or "Football"))
+
     if not event:
-        text = "🏟️ <b>MATCH CENTRE</b>\n━━━━━━━━━━━━━━━━━━━━\nThis match is no longer available in the live feed."
+        text = "🏟️ <b>MATCH CENTRE</b>\n━━━━━━━━━━━━━━━━━━━━\nThis match is no longer available."
     else:
-        home_raw = str(event.get("strHomeTeam") or "Home").strip()
-        away_raw = str(event.get("strAwayTeam") or "Away").strip()
+        home_raw = str(event.get("strHomeTeam") or details.get("strHomeTeam") or "Home").strip()
+        away_raw = str(event.get("strAwayTeam") or details.get("strAwayTeam") or "Away").strip()
         home = html.escape(home_raw)
         away = html.escape(away_raw)
-        hs, as_ = event.get("intHomeScore"), event.get("intAwayScore")
+
+        hs = event.get("intHomeScore")
+        as_ = event.get("intAwayScore")
+        if hs in (None, ""):
+            hs = details.get("intHomeScore")
+        if as_ in (None, ""):
+            as_ = details.get("intAwayScore")
+
         progress = html.escape(event_progress(event))
+        venue = str(details.get("strVenue") or event.get("strVenue") or "").strip()
+
         max_goals = None
         try:
             if hs not in (None, "") and as_ not in (None, ""):
                 max_goals = max(0, int(hs) + int(as_))
         except (TypeError, ValueError):
             max_goals = None
+
         goals = fetch_confirmed_goals(event_id, max_goals=max_goals)
+        cards, substitutions = fetch_cards_and_subs(event_id)
+        tv_channels = fetch_event_tv(event_id)
+
         home_goals = [g for g in goals if _same_team(g.get("team"), home_raw)]
         away_goals = [g for g in goals if _same_team(g.get("team"), away_raw)]
-        unassigned = [g for g in goals if g not in home_goals and g not in away_goals]
+        unassigned_goals = [g for g in goals if g not in home_goals and g not in away_goals]
+
+        home_cards = [c for c in cards if _same_team(c.get("team"), home_raw)]
+        away_cards = [c for c in cards if _same_team(c.get("team"), away_raw)]
+        other_cards = [c for c in cards if c not in home_cards and c not in away_cards]
+
+        home_subs = [s for s in substitutions if _same_team(s.get("team"), home_raw)]
+        away_subs = [s for s in substitutions if _same_team(s.get("team"), away_raw)]
+        other_subs = [s for s in substitutions if s not in home_subs and s not in away_subs]
+
         home_score = "–" if hs in (None, "") else html.escape(str(hs))
         away_score = "–" if as_ in (None, "") else html.escape(str(as_))
+
         lines = [
-            "🏟️ <b>MATCH CENTRE</b>", "━━━━━━━━━━━━━━━━━━━━",
-            f"🏆 {html.escape(league_name)}", f"⏱ {progress}", "",
-            f"🏠 <b>{home}</b>   <b>{home_score}</b>",
+            "🏟️ <b>MATCH CENTRE</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"🏆 {html.escape(league_name)}",
+            f"⏱ <b>{progress}</b>",
         ]
+        if venue:
+            lines.append(f"📍 {html.escape(venue)}")
+
+        lines.extend(["", f"🏠 <b>{home}</b>   <b>{home_score}</b>"])
         if home_goals:
             lines.extend(_goal_line(goal) for goal in home_goals)
         elif hs not in (None, "", 0, "0"):
             lines.append("⚽ Scorer details pending")
+        for card in home_cards:
+            lines.append(_incident_line(card))
+        for sub in home_subs:
+            lines.append(_incident_line(sub, "label"))
+
         lines.extend(["", f"✈️ <b>{away}</b>   <b>{away_score}</b>"])
         if away_goals:
             lines.extend(_goal_line(goal) for goal in away_goals)
         elif as_ not in (None, "", 0, "0"):
             lines.append("⚽ Scorer details pending")
-        if unassigned:
-            lines.extend(["", "⚽ <b>OTHER CONFIRMED GOALS</b>"])
-            lines.extend(_goal_line(goal) for goal in unassigned)
-        lines.extend(["", "━━━━━━━━━━━━━━━━━━━━", "🔴 <b>LIVE MATCH</b>"])
+        for card in away_cards:
+            lines.append(_incident_line(card))
+        for sub in away_subs:
+            lines.append(_incident_line(sub, "label"))
+
+        if unassigned_goals or other_cards or other_subs:
+            lines.extend(["", "📋 <b>OTHER MATCH EVENTS</b>"])
+            lines.extend(_goal_line(goal) for goal in unassigned_goals)
+            lines.extend(_incident_line(card) for card in other_cards)
+            lines.extend(_incident_line(sub, "label") for sub in other_subs)
+
+        lines.extend(["", "━━━━━━━━━━━━━━━━━━━━"])
+        if tv_channels:
+            lines.append("📺 <b>WHERE TO WATCH</b>")
+            for channel in tv_channels[:6]:
+                lines.append(f"• {html.escape(channel)}")
+        else:
+            lines.append("📺 Broadcast information not currently listed.")
+
+        lines.extend(["", "🔴 <b>LIVE MATCH</b>"])
         text = "\n".join(lines)
+
+        if len(text) > 3900:
+            text = text[:3850] + "\n…more match events may be available."
+
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 REFRESH MATCH", callback_data=f"matchcentre:{event_id}:{league_id}")],
         [InlineKeyboardButton("⬅️ LIVE MATCHES", callback_data=f"live:league:{league_id}")],
