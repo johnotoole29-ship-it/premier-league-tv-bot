@@ -531,7 +531,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     except Exception as e:
-        logger.error(f"UI Error: {e}")
-        await query.edit_message_text(
-            "❌ <b>Something went wrong.</b>",
-            rep
+    logger.error(f"UI Error: {e}")
+
+    await query.edit_message_text(
+        "❌ <b>Something went wrong.</b>",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Back",
+                        callback_data="home",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="HTML",
+    )
