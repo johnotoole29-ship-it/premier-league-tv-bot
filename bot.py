@@ -55,13 +55,15 @@ _original_build_home_page = bot_core.build_home_page
 
 def build_home_page_with_live():
     text, keyboard = _original_build_home_page()
-    # Keep TV/broadcaster information on individual fixtures, but remove
-    # the standalone TV & Streaming Guide button from the home screen.
     home_rows = [
         row for row in keyboard.inline_keyboard
         if not any(button.callback_data == "menu:channels" for button in row)
     ]
-    rows = [[InlineKeyboardButton("🔴 LIVE NOW", callback_data="live:menu")], *home_rows]
+    rows = [
+        [InlineKeyboardButton("🔴 LIVE NOW", callback_data="live:menu")],
+        [InlineKeyboardButton("📊 LEAGUE TABLES", callback_data="table:menu")],
+        *home_rows,
+    ]
     return text, InlineKeyboardMarkup(rows)
 
 
@@ -174,6 +176,89 @@ def build_live_menu():
 
 def build_live_football_menu():
     return build_live_overview()
+
+
+def fetch_league_table(league_id):
+    data = bot_core.sportsdb_get("lookuptable.php", {"l": str(league_id)})
+    if data is None:
+        return None
+    if not isinstance(data, dict):
+        return []
+    table = data.get("table") or data.get("standings") or []
+    return table if isinstance(table, list) else []
+
+
+def _table_value(row, *keys, default="0"):
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return default
+
+
+def build_tables_menu():
+    text = (
+        "📊 <b>LEAGUE TABLES</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Choose a competition to view the latest standings."
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏴 Premier League", callback_data="table:league:4328"), InlineKeyboardButton("🏴 Championship", callback_data="table:league:4329")],
+        [InlineKeyboardButton("🇪🇸 La Liga", callback_data="table:league:4335"), InlineKeyboardButton("🇮🇹 Serie A", callback_data="table:league:4332")],
+        [InlineKeyboardButton("🇩🇪 Bundesliga", callback_data="table:league:4331"), InlineKeyboardButton("🇫🇷 Ligue 1", callback_data="table:league:4334")],
+        [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
+    ])
+    return text, keyboard
+
+
+def build_league_table_page(league_id):
+    league_id = str(league_id)
+    league_name = LIVE_LEAGUES.get(league_id, "League")
+    icon = LEAGUE_ICONS.get(league_id, "⚽")
+    table = fetch_league_table(league_id)
+
+    if table is None:
+        text = (
+            f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "⚠️ League table data is temporarily unavailable."
+        )
+    elif not table:
+        text = (
+            f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "No standings are currently available from the data provider."
+        )
+    else:
+        rows = []
+        for index, row in enumerate(table, start=1):
+            if not isinstance(row, dict):
+                continue
+            pos = _table_value(row, "intRank", "intPosition", "rank", default=str(index))
+            team = _table_value(row, "strTeam", "name", "strName", default="Team")
+            played = _table_value(row, "intPlayed", "intGamesPlayed", "played")
+            gd = _table_value(row, "intGoalDifference", "intGoalDiff", "goalDifference", default="0")
+            pts = _table_value(row, "intPoints", "points", default="0")
+            short_team = team[:15]
+            rows.append(f"{pos:>2} {short_team:<15} {played:>2} {gd:>4} {pts:>3}")
+
+        header = " # Team             P   GD Pts"
+        table_text = "\n".join([header, *rows])
+        text = (
+            f"{icon} <b>{html.escape(league_name.upper())} TABLE</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "<pre>"
+            f"{html.escape(table_text)}"
+            "</pre>"
+            "<i>P = Played • GD = Goal Difference • Pts = Points</i>"
+        )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 REFRESH TABLE", callback_data=f"table:league:{league_id}")],
+        [InlineKeyboardButton("⬅️ LEAGUE TABLES", callback_data="table:menu")],
+        [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
+    ])
+    return text, keyboard
 
 
 def fetch_confirmed_goals(event_id, max_goals=None):
@@ -330,7 +415,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not query:
         return
     data = query.data or ""
-    if data.startswith("live:") or data.startswith("matchcentre:"):
+    if data.startswith("live:") or data.startswith("matchcentre:") or data.startswith("table:"):
         await query.answer()
         if data == "live:menu":
             text, keyboard = build_live_menu()
@@ -339,6 +424,11 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("live:league:"):
             league_id = data.split(":", 2)[2]
             text, keyboard = build_live_league_page(league_id)
+        elif data == "table:menu":
+            text, keyboard = build_tables_menu()
+        elif data.startswith("table:league:"):
+            league_id = data.split(":", 2)[2]
+            text, keyboard = build_league_table_page(league_id)
         elif data.startswith("matchcentre:"):
             _, event_id, league_id = data.split(":", 2)
             text, keyboard = build_match_centre(event_id, league_id)
