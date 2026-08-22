@@ -960,4 +960,877 @@ def build_channels_page():
 
 def build_fixtures_page(
     date_value,
-   
+    category,
+):
+
+    meta = CATEGORIES.get(
+        category
+    )
+
+    if not meta:
+
+        return (
+            "❌ <b>Unknown category.</b>",
+            InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🏠 Main Menu",
+                            callback_data="menu:home",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+    events = fetch_events(
+        date_value,
+        category,
+    )
+
+    events.sort(
+        key=parse_uk_time
+    )
+
+    text = (
+        f"{meta['icon']} "
+        f"<b>{html.escape(meta['title'].upper())}</b>\n"
+        f"📅 <b>{pretty_date(date_value)}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    keyboard_buttons = []
+
+    if not events:
+
+        text += (
+            "<blockquote>"
+            f"❌ No {html.escape(meta['title'])} "
+            "events scheduled for this date."
+            "</blockquote>"
+        )
+
+    else:
+
+        text += (
+            "<i>Tap an event to open Match Center "
+            "and view TV channels.</i>\n\n"
+        )
+
+        for event in events:
+
+            home = str(
+                event.get("strHomeTeam")
+                or ""
+            ).strip()
+
+            away = str(
+                event.get("strAwayTeam")
+                or ""
+            ).strip()
+
+            event_name = str(
+                event.get("strEvent")
+                or ""
+            ).strip()
+
+            if home and away:
+
+                match_title = (
+                    f"{home} vs {away}"
+                )
+
+            elif event_name:
+
+                match_title = event_name
+
+            else:
+
+                match_title = "TBA Event"
+
+            event_time = parse_uk_time(
+                event
+            )
+
+            if event_time.year == 2099:
+
+                time_text = "TBC"
+
+            else:
+
+                time_text = (
+                    event_time.strftime(
+                        "%H:%M"
+                    )
+                )
+
+            event_id = str(
+                event.get(
+                    "idEvent",
+                    "",
+                )
+            )
+
+            if not event_id:
+                continue
+
+            button_text = (
+                f"[{time_text}] "
+                f"{match_title}"
+            )
+
+            if len(button_text) > 48:
+
+                button_text = (
+                    button_text[:45]
+                    + "..."
+                )
+
+            keyboard_buttons.append(
+                [
+                    InlineKeyboardButton(
+                        button_text,
+                        callback_data=(
+                            f"match:"
+                            f"{event_id}:"
+                            f"{date_string(date_value)}:"
+                            f"{category}"
+                        ),
+                    )
+                ]
+            )
+
+    today = datetime.now(
+        UK_TIMEZONE
+    ).date()
+
+    previous_day = (
+        date_value
+        - timedelta(days=1)
+    )
+
+    next_day = (
+        date_value
+        + timedelta(days=1)
+    )
+
+    back_target = (
+        "menu:home"
+    )
+
+    if category in [
+        "football_prem",
+        "football_champ",
+    ]:
+
+        back_target = (
+            "menu:football"
+        )
+
+    elif category in [
+        "nrl",
+        "superleague",
+        "union",
+    ]:
+
+        back_target = (
+            "menu:rugby"
+        )
+
+    elif category in [
+        "ufc",
+        "boxing",
+        "wwe",
+    ]:
+
+        back_target = (
+            "menu:combat"
+        )
+
+    keyboard_buttons.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Prev",
+                callback_data=(
+                    f"date:"
+                    f"{date_string(previous_day)}:"
+                    f"{category}"
+                ),
+            ),
+
+            InlineKeyboardButton(
+                "📅 Today",
+                callback_data=(
+                    f"date:"
+                    f"{date_string(today)}:"
+                    f"{category}"
+                ),
+            ),
+
+            InlineKeyboardButton(
+                "Next ➡️",
+                callback_data=(
+                    f"date:"
+                    f"{date_string(next_day)}:"
+                    f"{category}"
+                ),
+            ),
+        ]
+    )
+
+    keyboard_buttons.append(
+        [
+            InlineKeyboardButton(
+                "🔄 Refresh",
+                callback_data=(
+                    f"date:"
+                    f"{date_string(date_value)}:"
+                    f"{category}"
+                ),
+            ),
+
+            InlineKeyboardButton(
+                "⬅️ Back",
+                callback_data=back_target,
+            ),
+        ]
+    )
+
+    return (
+        text,
+        InlineKeyboardMarkup(
+            keyboard_buttons
+        ),
+    )
+
+
+# ============================================================
+# MATCH DETAILS PAGE
+# ============================================================
+
+def build_match_details_page(
+    event_id,
+    date_value,
+    category,
+):
+
+    meta = CATEGORIES.get(
+        category
+    )
+
+    if not meta:
+
+        return (
+            "❌ <b>Unknown category.</b>",
+            InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🏠 Main Menu",
+                            callback_data="menu:home",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+    events = fetch_events(
+        date_value,
+        category,
+    )
+
+    event = next(
+        (
+            item
+            for item in events
+            if str(
+                item.get("idEvent")
+            ) == str(event_id)
+        ),
+        None,
+    )
+
+    if not event:
+
+        return (
+            "❌ <b>Event data is no longer available.</b>",
+            InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Back to Matches",
+                            callback_data=(
+                                f"date:"
+                                f"{date_string(date_value)}:"
+                                f"{category}"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+        )
+
+    home = str(
+        event.get("strHomeTeam")
+        or ""
+    ).strip()
+
+    away = str(
+        event.get("strAwayTeam")
+        or ""
+    ).strip()
+
+    event_name = str(
+        event.get("strEvent")
+        or ""
+    ).strip()
+
+    if home and away:
+
+        match_title = (
+            f"{home} vs {away}"
+        )
+
+    elif event_name:
+
+        match_title = event_name
+
+    else:
+
+        match_title = "TBA Event"
+
+    event_time = parse_uk_time(
+        event
+    )
+
+    if event_time.year == 2099:
+
+        time_text = "TBC"
+
+    else:
+
+        time_text = (
+            event_time.strftime(
+                "%H:%M"
+            )
+        )
+
+    tv_data = get_tv_channels(
+        date_value,
+        meta["sport"],
+    )
+
+    channels = tv_data.get(
+        str(event_id),
+        [],
+    )
+
+    text = (
+        f"{meta['icon']} <b>MATCH CENTER</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🏆 <b>Event:</b> "
+        f"{html.escape(match_title)}\n"
+        f"📅 <b>Date:</b> "
+        f"{pretty_date(date_value)}\n"
+        f"⏰ <b>Start:</b> "
+        f"{time_text} UK\n\n"
+    )
+
+    if channels:
+
+        text += (
+            "📺 <b>Supported Broadcasts</b>\n\n"
+        )
+
+        for channel in channels:
+
+            text += (
+                f"• {html.escape(channel)}\n"
+            )
+
+    else:
+
+        text += (
+            "<blockquote>"
+            "📺 No supported broadcaster is "
+            "currently listed for this event."
+            "</blockquote>"
+        )
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "⬅️ Back to Matches",
+                    callback_data=(
+                        f"date:"
+                        f"{date_string(date_value)}:"
+                        f"{category}"
+                    ),
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    "🏠 Main Menu",
+                    callback_data="menu:home",
+                )
+            ],
+        ]
+    )
+
+    return (
+        text,
+        keyboard,
+    )
+
+
+# ============================================================
+# START COMMAND
+# ============================================================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    chat = update.effective_chat
+    message = update.effective_message
+
+    # ========================================================
+    # GROUP / TOPIC MODE
+    # ========================================================
+
+    if chat.type in [
+        "group",
+        "supergroup",
+    ]:
+
+        chat_id = str(
+            chat.id
+        )
+
+        thread_id = (
+            str(
+                message.message_thread_id
+            )
+            if message.message_thread_id
+            else None
+        )
+
+        correct_group = (
+            chat_id.endswith(
+                ALLOWED_CHAT_ID
+            )
+        )
+
+        correct_topic = (
+            thread_id
+            == ALLOWED_TOPIC_ID
+        )
+
+        if (
+            correct_group
+            and correct_topic
+        ):
+
+            bot_info = (
+                await context.bot.get_me()
+            )
+
+            bot_username = (
+                bot_info.username
+            )
+
+            text = (
+                "⚡ <b>MATCHDAY HUB</b>\n"
+                "<i>Fixtures & TV Guide</i>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Use the private Match Center "
+                "to browse fixtures and channels."
+            )
+
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🚀 Open Match Center",
+                            url=(
+                                f"https://t.me/"
+                                f"{bot_username}"
+                                f"?start=open"
+                            ),
+                        )
+                    ]
+                ]
+            )
+
+            await message.reply_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+        return
+
+
+    # ========================================================
+    # PRIVATE CHAT
+    # ========================================================
+
+    if chat.type == "private":
+
+        text, keyboard = (
+            build_home_page()
+        )
+
+        await message.reply_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+
+
+# ============================================================
+# BUTTON HANDLER
+# ============================================================
+
+async def button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    data = (
+        query.data
+        or ""
+    )
+
+    try:
+
+        # ====================================================
+        # HOME
+        # ====================================================
+
+        if data == "menu:home":
+
+            text, keyboard = (
+                build_home_page()
+            )
+
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+            return
+
+
+        # ====================================================
+        # FOOTBALL
+        # ====================================================
+
+        if data == "menu:football":
+
+            text, keyboard = (
+                build_football_menu()
+            )
+
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+            return
+
+
+        # ====================================================
+        # RUGBY
+        # ====================================================
+
+        if data == "menu:rugby":
+
+            text, keyboard = (
+                build_rugby_menu()
+            )
+
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+            return
+
+
+        # ====================================================
+        # COMBAT
+        # ====================================================
+
+        if data == "menu:combat":
+
+            text, keyboard = (
+                build_combat_menu()
+            )
+
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+            return
+
+
+        # ====================================================
+        # CHANNELS
+        # ====================================================
+
+        if data in [
+            "view_channels",
+            "menu:channels",
+        ]:
+
+            text, keyboard = (
+                build_channels_page()
+            )
+
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+            return
+
+
+        # ====================================================
+        # DATE PAGE
+        # ====================================================
+
+        if data.startswith(
+            "date:"
+        ):
+
+            parts = data.split(
+                ":",
+                2,
+            )
+
+            if len(parts) != 3:
+
+                logger.error(
+                    "Invalid date callback: %s",
+                    data,
+                )
+
+                return
+
+            date_text = parts[1]
+            category = parts[2]
+
+            target_date = (
+                datetime.strptime(
+                    date_text,
+                    "%Y-%m-%d",
+                ).date()
+            )
+
+            text, keyboard = (
+                build_fixtures_page(
+                    target_date,
+                    category,
+                )
+            )
+
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+            return
+
+
+        # ====================================================
+        # MATCH PAGE
+        # ====================================================
+
+        if data.startswith(
+            "match:"
+        ):
+
+            parts = data.split(
+                ":",
+                3,
+            )
+
+            if len(parts) != 4:
+
+                logger.error(
+                    "Invalid match callback: %s",
+                    data,
+                )
+
+                return
+
+            event_id = parts[1]
+            date_text = parts[2]
+            category = parts[3]
+
+            target_date = (
+                datetime.strptime(
+                    date_text,
+                    "%Y-%m-%d",
+                ).date()
+            )
+
+            text, keyboard = (
+                build_match_details_page(
+                    event_id,
+                    target_date,
+                    category,
+                )
+            )
+
+            await query.edit_message_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+
+            return
+
+
+        # ====================================================
+        # UNKNOWN CALLBACK
+        # ====================================================
+
+        logger.warning(
+            "Unknown callback: %s",
+            data,
+        )
+
+        await query.edit_message_text(
+            "⚠️ <b>Unknown menu option.</b>",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🏠 Main Menu",
+                            callback_data="menu:home",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="HTML",
+        )
+
+
+    # ========================================================
+    # UI ERROR
+    # ========================================================
+
+    except Exception as error:
+
+        logger.exception(
+            "UI Error: %s",
+            error,
+        )
+
+        await query.edit_message_text(
+            "❌ <b>Something went wrong.</b>\n\n"
+            "Please return to the main menu "
+            "and try again.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🏠 Main Menu",
+                            callback_data="menu:home",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="HTML",
+        )
+
+
+# ============================================================
+# GLOBAL ERROR HANDLER
+# ============================================================
+
+async def error_handler(
+    update,
+    context,
+):
+
+    logger.error(
+        "Telegram error: %s",
+        context.error,
+        exc_info=context.error,
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    logger.info(
+        "Starting MatchDay Hub..."
+    )
+
+    health_thread = threading.Thread(
+        target=start_health_server,
+        daemon=True,
+    )
+
+    health_thread.start()
+
+    application = (
+        Application
+        .builder()
+        .token(TELEGRAM_TOKEN)
+        .build()
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start,
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            button_handler
+        )
+    )
+
+    application.add_error_handler(
+        error_handler
+    )
+
+    logger.info(
+        "MatchDay Hub is online."
+    )
+
+    application.run_polling(
+        drop_pending_updates=True
+    )
+
+
+# ============================================================
+# RUN
+# ============================================================
+
+if __name__ == "__main__":
+
+    main()
