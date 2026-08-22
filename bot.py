@@ -25,26 +25,21 @@ async def preview_group(
 
     group_text = (
         "🏟️ <b>SPORTS BOT</b>\n"
-        "<b>FIXTURES • TV • LIVE SPORT</b>\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "⚡ <b>YOUR MATCHDAY COMPANION</b>\n\n"
-        "⚽ Premier League & Championship\n"
+        "<b>FIXTURES • TV • LIVE SPORT</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "⚽ Premier League • Championship\n"
         "🌍 La Liga • Serie A • Bundesliga • Ligue 1\n"
         "🏉 Rugby • 🥊 Combat • ⛳ Golf • 🎯 Darts\n"
-        "📺 TV & streaming broadcast listings\n"
-        "🕒 All fixtures shown in UK local time\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🔒 <b>PRIVATE MATCH CENTRE</b>\n\n"
-        "Your fixtures and TV guide are delivered privately, "
-        "keeping the group clean and uncluttered.\n\n"
-        "📩 <b>Tap below and Sports Bot will send you a private message.</b>\n\n"
-        "👇 <b>OPEN YOUR MATCH CENTRE</b>"
+        "📺 TV & streaming listings • 🕒 UK times\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🔒 <b>PRIVATE MATCH CENTRE</b>\n"
+        "📩 Tap below and Sports Bot will send your fixtures & TV guide privately."
     )
 
     keyboard = InlineKeyboardMarkup(
         [[
             InlineKeyboardButton(
-                "⚡ LAUNCH SPORTS BOT ⚡",
+                "⚡ OPEN MATCH CENTRE",
                 url=f"https://t.me/{bot_username}?start=open",
             )
         ]]
