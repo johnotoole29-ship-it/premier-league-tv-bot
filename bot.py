@@ -191,7 +191,7 @@ def parse_uk_time(event):
         return fallback
 
 # ============================================================
-# UI VIEWS
+# UI VIEWS (PREMIUM UPGRADE)
 # ============================================================
 
 def build_home_page():
@@ -199,11 +199,13 @@ def build_home_page():
     today_str = date_string(now_uk.date())
     
     text = (
-        "🔥 <b>SPORT PULSE ALERTS</b>\n"
+        "⚡ <b>SPORT PULSE ALERTS</b>\n"
+        "<i>Premium Fixture & Broadcast Guide</i>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Welcome to your centralized sports hub.\n\n"
-        f"🕒 <b>Current UK Time:</b> {now_uk.strftime('%H:%M - %A %d %b')}\n\n"
-        "Select a sport below to view fixtures and broadcast channels."
+        "🏟️ <b>MAIN DASHBOARD</b>\n"
+        f"📅 <b>Date:</b> {now_uk.strftime('%A, %d %b %Y')}\n"
+        f"⏰ <b>Time:</b> {now_uk.strftime('%H:%M')} UK\n\n"
+        "<i>Select a category below to access live match data and premium broadcast feeds.</i>"
     )
     
     kb = InlineKeyboardMarkup([
@@ -211,11 +213,11 @@ def build_home_page():
             InlineKeyboardButton("⚽ Premier League", callback_data=f"date:{today_str}:football")
         ],
         [
-            InlineKeyboardButton("🏉 Rugby", callback_data="menu:rugby"),
-            InlineKeyboardButton("🥊 Combat Sports", callback_data="menu:combat")
+            InlineKeyboardButton("🏉 Rugby Hub", callback_data="menu:rugby"),
+            InlineKeyboardButton("🥊 Combat Hub", callback_data="menu:combat")
         ],
         [
-            InlineKeyboardButton("📺 Supported App Channels", callback_data="menu:channels")
+            InlineKeyboardButton("⚙️ Supported App Channels", callback_data="menu:channels")
         ]
     ])
     
@@ -224,9 +226,9 @@ def build_home_page():
 def build_rugby_menu():
     today_str = date_string(datetime.now(UK_TIMEZONE).date())
     text = (
-        "🏉 <b>RUGBY FIXTURES</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Select a league or code below to view matches:"
+        "🏉 <b>RUGBY HUB</b>\n"
+        "<i>Select a league or code below:</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━"
     )
     
     kb = InlineKeyboardMarkup([
@@ -247,9 +249,9 @@ def build_rugby_menu():
 def build_combat_menu():
     today_str = date_string(datetime.now(UK_TIMEZONE).date())
     text = (
-        "🥊 <b>COMBAT SPORTS</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Select an organization below to view events:"
+        "🥊 <b>COMBAT SPORTS HUB</b>\n"
+        "<i>Select an organization below:</i>\n"
+        "━━━━━━━━━━━━━━━━━━━━"
     )
     
     kb = InlineKeyboardMarkup([
@@ -268,13 +270,15 @@ def build_combat_menu():
     return text, kb
 
 def build_channels_page():
-    channel_list = "\n".join(f"• {c.title()}" for c in MY_CHANNELS)
+    # Format the channels into a sleek grid-like string
+    channel_list = ", ".join(f"<b>{c.title()}</b>" for c in MY_CHANNELS)
     text = (
-        "📺 <b>SUPPORTED APP CHANNELS</b>\n"
+        "⚙️ <b>SYSTEM CONFIGURATION</b>\n"
+        "<i>Supported Broadcast Feeds</i>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "The bot automatically matches and displays feeds from the following broadcasters:\n\n"
-        f"{channel_list}\n\n"
-        "<i>Feeds outside this list are filtered out to keep listings clean.</i>"
+        "The system is currently configured to intercept and display live feeds from the following networks:\n\n"
+        f"<blockquote>{channel_list}</blockquote>\n\n"
+        "<i>All other global feeds are actively filtered out to ensure listing clarity.</i>"
     )
     
     kb = InlineKeyboardMarkup([
@@ -300,13 +304,12 @@ def build_fixtures_page(date_value, category):
     )
     
     if not events:
-        text += f"❌ <i>No {meta['title']} events scheduled for this date.</i>\n\n"
+        text += f"<blockquote>❌ <i>No {meta['title']} events scheduled for this date.</i></blockquote>\n\n"
     else:
         for idx, event in enumerate(events, 1):
             home = html.escape(str(event.get("strHomeTeam") or ""))
             away = html.escape(str(event.get("strAwayTeam") or ""))
             
-            # Combat sports fallback to event name
             if not home or not away or home == "None" or away == "None":
                 match_title = html.escape(str(event.get("strEvent") or "TBA Match"))
             else:
@@ -318,17 +321,22 @@ def build_fixtures_page(date_value, category):
             event_id = str(event.get("idEvent", ""))
             channels = tv_data.get(event_id, [])
             
+            # Compress channels into a sleek inline list instead of a massive vertical wall
             if not channels:
-                tv_text = "📺 <i>No app channels listed yet</i>"
+                tv_text = "📺 <i>No feeds currently listed</i>"
             else:
-                tv_text = "📺 <b>Broadcasts:</b>\n" + "\n".join(f"   └ {html.escape(c)}" for c in channels[:6])
-                if len(channels) > 6:
-                    tv_text += f"\n   └ <i>+{len(channels)-6} more feeds</i>"
+                visible_channels = [html.escape(c) for c in channels[:4]]
+                tv_text = f"📺 <b>Feeds:</b> {', '.join(visible_channels)}"
+                if len(channels) > 4:
+                    tv_text += f" <i>(+{len(channels)-4})</i>"
             
+            # Wrap the match details in a blockquote to create a "UI Card" effect
             text += (
                 f"<b>{idx}. {match_title}</b>\n"
+                f"<blockquote>"
                 f"⏰ <b>Kick-off:</b> {time_str} UK\n"
-                f"{tv_text}\n\n"
+                f"{tv_text}"
+                f"</blockquote>\n"
             )
             
     today_str = date_string(datetime.now(UK_TIMEZONE).date())
@@ -348,12 +356,13 @@ def build_fixtures_page(date_value, category):
             InlineKeyboardButton("Next Day ➡️", callback_data=f"date:{next_day_str}:{category}")
         ],
         [
-            InlineKeyboardButton("🔄 Refresh", callback_data=f"date:{date_string(date_value)}:{category}"),
+            InlineKeyboardButton("🔄 Refresh Feeds", callback_data=f"date:{date_string(date_value)}:{category}"),
             InlineKeyboardButton("⬅️ Back", callback_data=back_target)
         ]
     ])
     
     return text, kb
+    
 
 # ============================================================
 # HANDLERS
