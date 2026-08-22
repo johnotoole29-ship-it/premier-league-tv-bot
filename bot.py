@@ -65,20 +65,16 @@ LIVE_LEAGUES = {
     "4328": "Premier League", "4329": "Championship", "4335": "La Liga",
     "4332": "Serie A", "4331": "Bundesliga", "4334": "Ligue 1",
 }
-LIVE_SPORTS = {
-    "rugby": {"title": "Rugby", "icon": "🏉", "api": "rugby"},
-    "combat": {"title": "Combat", "icon": "🥊", "api": "fighting"},
-    "golf": {"title": "Golf", "icon": "⛳", "api": "golf"},
-    "darts": {"title": "Darts", "icon": "🎯", "api": "darts"},
-}
 
 
 def build_live_menu():
-    text = "🔴 <b>LIVE NOW</b>\n━━━━━━━━━━━━━━━━━━━━\nChoose a sport."
+    text = (
+        "🔴 <b>LIVE NOW</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Live scores are currently available for football."
+    )
     return text, InlineKeyboardMarkup([
         [InlineKeyboardButton("⚽ FOOTBALL", callback_data="live:football")],
-        [InlineKeyboardButton("🏉 RUGBY", callback_data="live:sport:rugby"), InlineKeyboardButton("🥊 COMBAT", callback_data="live:sport:combat")],
-        [InlineKeyboardButton("⛳ GOLF", callback_data="live:sport:golf"), InlineKeyboardButton("🎯 DARTS", callback_data="live:sport:darts")],
         [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
     ])
 
@@ -89,7 +85,7 @@ def build_live_football_menu():
         [InlineKeyboardButton("🏴 Premier League", callback_data="live:league:4328"), InlineKeyboardButton("🏴 Championship", callback_data="live:league:4329")],
         [InlineKeyboardButton("🇪🇸 La Liga", callback_data="live:league:4335"), InlineKeyboardButton("🇮🇹 Serie A", callback_data="live:league:4332")],
         [InlineKeyboardButton("🇩🇪 Bundesliga", callback_data="live:league:4331"), InlineKeyboardButton("🇫🇷 Ligue 1", callback_data="live:league:4334")],
-        [InlineKeyboardButton("⬅️ LIVE SPORTS", callback_data="live:menu")],
+        [InlineKeyboardButton("⬅️ LIVE NOW", callback_data="live:menu")],
         [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
     ])
 
@@ -105,8 +101,7 @@ def _extract_live_events(data):
 
 
 def fetch_live_sport(api_sport):
-    endpoint = "all" if api_sport == "rugby" else api_sport
-    url = f"https://www.thesportsdb.com/api/v2/json/livescore/{endpoint}"
+    url = f"https://www.thesportsdb.com/api/v2/json/livescore/{api_sport}"
     try:
         response = requests.get(url, headers={"X-API-KEY": bot_core.SPORTSDB_API_KEY}, timeout=20)
         response.raise_for_status()
@@ -114,8 +109,6 @@ def fetch_live_sport(api_sport):
     except Exception as error:
         bot_core.logger.error("Live score request failed for %s: %s", api_sport, error)
         return None
-    if api_sport == "rugby":
-        return [event for event in events if str(event.get("strSport") or "").strip().lower() == "rugby"]
     return events
 
 
@@ -281,39 +274,6 @@ def build_match_centre(event_id, league_id):
     return text, keyboard
 
 
-def build_live_sport_page(sport_key):
-    sport = LIVE_SPORTS.get(sport_key)
-    if not sport:
-        return build_live_menu()
-    events = fetch_live_sport(sport["api"])
-    title = f"{sport['icon']} {sport['title'].upper()} LIVE"
-    if events is None:
-        text = f"{title}\n━━━━━━━━━━━━━━━━━━━━\nLive scores are temporarily unavailable."
-    elif not events:
-        text = f"{title}\n━━━━━━━━━━━━━━━━━━━━\nNo {sport['title'].lower()} events are live right now."
-    else:
-        lines = [f"{sport['icon']} <b>{sport['title'].upper()} LIVE</b>", "━━━━━━━━━━━━━━━━━━━━"]
-        for event in events[:20]:
-            home = str(event.get("strHomeTeam") or "").strip()
-            away = str(event.get("strAwayTeam") or "").strip()
-            hs, as_ = event.get("intHomeScore"), event.get("intAwayScore")
-            lines.append("")
-            if home and away and hs not in (None, "") and as_ not in (None, ""):
-                lines.append(f"🔴 <b>{html.escape(home)} {html.escape(str(hs))}–{html.escape(str(as_))} {html.escape(away)}</b>")
-            else:
-                lines.append(f"🔴 <b>{html.escape(event_title(event))}</b>")
-            league = str(event.get("strLeague") or "").strip()
-            if league:
-                lines.append(f"🏆 {html.escape(league)}")
-            lines.append(f"⏱ {html.escape(event_progress(event))}")
-        text = "\n".join(lines)
-    return text, InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 REFRESH", callback_data=f"live:sport:{sport_key}")],
-        [InlineKeyboardButton("⬅️ LIVE SPORTS", callback_data="live:menu")],
-        [InlineKeyboardButton("🏠 MAIN MENU", callback_data="menu:home")],
-    ])
-
-
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
@@ -328,9 +288,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("live:league:"):
             league_id = data.split(":", 2)[2]
             text, keyboard = build_live_league_page(league_id)
-        elif data.startswith("live:sport:"):
-            sport_key = data.split(":", 2)[2]
-            text, keyboard = build_live_sport_page(sport_key)
         elif data.startswith("matchcentre:"):
             _, event_id, league_id = data.split(":", 2)
             text, keyboard = build_match_centre(event_id, league_id)
@@ -351,38 +308,6 @@ async def preview_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
-async def debug_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    message = update.effective_message
-    if not chat or not message or chat.type != "private":
-        return
-    url = "https://www.thesportsdb.com/api/v2/json/livescore/all"
-    try:
-        response = requests.get(url, headers={"X-API-KEY": bot_core.SPORTSDB_API_KEY}, timeout=20)
-        response.raise_for_status()
-        events = _extract_live_events(response.json())
-    except Exception as error:
-        await message.reply_text(f"❌ DEBUG LIVE failed: {html.escape(str(error))}", parse_mode="HTML")
-        return
-    if not events:
-        await message.reply_text("🧪 <b>DEBUG LIVE</b>\n━━━━━━━━━━━━━━━━━━━━\nThe API returned 0 live events.", parse_mode="HTML")
-        return
-    summary = {}
-    for event in events:
-        sport = str(event.get("strSport") or "(blank)").strip()
-        league_id = str(event.get("idLeague") or "?").strip()
-        league = str(event.get("strLeague") or "Unknown league").strip()
-        key = (sport, league_id, league)
-        summary[key] = summary.get(key, 0) + 1
-    lines = ["🧪 <b>DEBUG LIVE</b>", "━━━━━━━━━━━━━━━━━━━━", f"Total live events: <b>{len(events)}</b>", "", "<b>Sports / leagues returned:</b>"]
-    for (sport, league_id, league), count in sorted(summary.items(), key=lambda x: (x[0][0].lower(), x[0][2].lower()))[:60]:
-        lines.append(f"• {html.escape(sport)} | {html.escape(league)} | ID {html.escape(league_id)} | {count}")
-    text = "\n".join(lines)
-    if len(text) > 4000:
-        text = text[:3950] + "\n…truncated"
-    await message.reply_text(text, parse_mode="HTML")
-
-
 def main():
     bot_core.logger.info("Starting Sports Bot...")
     health_thread = threading.Thread(target=bot_core.start_health_server, daemon=True)
@@ -390,7 +315,6 @@ def main():
     application = Application.builder().token(bot_core.TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("previewgroup", preview_group))
-    application.add_handler(CommandHandler("debuglive", debug_live))
     application.add_handler(CallbackQueryHandler(callback_router))
     application.add_error_handler(bot_core.error_handler)
     bot_core.logger.info("Sports Bot is online.")
