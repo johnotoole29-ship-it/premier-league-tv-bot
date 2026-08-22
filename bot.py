@@ -59,7 +59,7 @@ CATEGORIES = {
 }
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger("SportPulse")
+logger = logging.getLogger("MatchDayHub")
 
 if not TELEGRAM_TOKEN or not SPORTSDB_API_KEY:
     raise RuntimeError("Missing TELEGRAM_TOKEN or SPORTSDB_API_KEY. Check your Bunny.net environment variables.")
@@ -201,7 +201,7 @@ def build_home_page():
     today_str = date_string(now_uk.date())
     
     text = (
-        "⚡ <b>SPORT PULSE ALERTS</b>\n"
+        "⚡ <b>MATCHDAY HUB</b>\n"
         "<i>Premium Fixture & Broadcast Guide</i>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🏟️ <b>MAIN DASHBOARD</b>\n"
@@ -411,7 +411,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = str(chat.id)
         thread_id = str(message.message_thread_id) if message.message_thread_id else None
         
-        # Check if the command was sent in the explicitly allowed chat and topic
         is_correct_group = chat_id.endswith(ALLOWED_CHAT_ID)
         is_correct_topic = thread_id == ALLOWED_TOPIC_ID
         
@@ -420,11 +419,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot_username = bot_info.username
             
             group_text = (
-                "⚡ <b>SPORT PULSE ALERTS</b>\n"
+                "⚡ <b>MATCHDAY HUB</b>\n"
                 "<i>Live Fixtures & TV Guide</i>\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "To keep the group chat clean, match browsing is handled in a private session.\n\n"
-                "👉 Tap below to launch your personal Match Center:"
+                "👉 Tap below to launch your personal dashboard:"
             )
             
             kb = InlineKeyboardMarkup([
@@ -433,7 +432,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await update.message.reply_text(group_text, reply_markup=kb, parse_mode="HTML")
             
-        # Silently ignore the command if it's the wrong group or topic
         return
 
     # 2. PRIVATE CHAT (1-on-1)
@@ -511,8 +509,9 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
-    logger.info("Bot starting with Group Security Locks engaged...")
+    logger.info("Bot starting with Premium MatchDay Hub branding...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
+    
