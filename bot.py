@@ -11,12 +11,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ============================================================
-# CONFIG
+# CONFIG & SECURITY LOCKS
 # ============================================================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SPORTSDB_API_KEY = os.getenv("SPORTSDB_API_KEY")
 SPORTSDB_BASE = "https://www.thesportsdb.com/api/v1/json"
 UK_TIMEZONE = ZoneInfo("Europe/London")
+
+# The bot will only respond to group messages inside this exact topic
+ALLOWED_CHAT_ID = "3988874271"
+ALLOWED_TOPIC_ID = "10394"
 
 # ============================================================
 # MY APP CHANNELS & SPORT CATEGORIES
@@ -192,7 +196,6 @@ def parse_uk_time(event):
 # ============================================================
 # UI VIEWS
 # ============================================================
-
 def build_home_page():
     now_uk = datetime.now(UK_TIMEZONE)
     today_str = date_string(now_uk.date())
@@ -306,7 +309,6 @@ def build_fixtures_page(date_value, category):
     else:
         text += "<i>Tap a match below to open the Match Center and view live broadcast feeds.</i>\n"
         
-        # Build a button for every match
         for event in events:
             home = html.escape(str(event.get("strHomeTeam") or ""))
             away = html.escape(str(event.get("strAwayTeam") or ""))
@@ -320,11 +322,8 @@ def build_fixtures_page(date_value, category):
             time_str = dt.strftime("%H:%M") if dt.year != 2099 else "TBC"
             
             event_id = str(event.get("idEvent", ""))
-            
-            # Format the button text (e.g., "[15:00] Arsenal vs Chelsea")
             btn_text = f"[{time_str}] {match_title}"
             
-            # Ensure the text isn't too long for Telegram's mobile view
             if len(btn_text) > 40:
                 btn_text = btn_text[:37] + "..."
                 
@@ -340,7 +339,6 @@ def build_fixtures_page(date_value, category):
     elif category in ["ufc", "boxing", "wwe"]:
         back_target = "menu:combat"
         
-    # Add navigation controls to the bottom
     kb_buttons.append([
         InlineKeyboardButton("⬅️ Prev Day", callback_data=f"date:{prev_day_str}:{category}"),
         InlineKeyboardButton("📅 Today", callback_data=f"date:{today_str}:{category}"),
@@ -359,8 +357,6 @@ def build_match_details_page(event_id, date_value, category):
         return "❌ <b>Error:</b> Unknown category.", InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu:home")]])
 
     events = fetch_events(date_value, category)
-    
-    # Locate the specific match in the day's data
     event = next((e for e in events if str(e.get("idEvent")) == event_id), None)
 
     if not event:
@@ -379,7 +375,6 @@ def build_match_details_page(event_id, date_value, category):
     dt = parse_uk_time(event)
     time_str = dt.strftime("%H:%M") if dt.year != 2099 else "TBC"
 
-    # Fetch TV channels specifically for this match
     tv_data = get_tv_channels(date_value, meta["sport"])
     channels = tv_data.get(event_id, [])
 
@@ -408,8 +403,43 @@ def build_match_details_page(event_id, date_value, category):
 # HANDLERS
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text, kb = build_home_page()
-    await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
+    chat = update.effective_chat
+    message = update.effective_message
+    
+    # 1. GROUP CHAT DETECTION (TOPIC LOCKED)
+    if chat.type in ["group", "supergroup"]:
+        chat_id = str(chat.id)
+        thread_id = str(message.message_thread_id) if message.message_thread_id else None
+        
+        # Check if the command was sent in the explicitly allowed chat and topic
+        is_correct_group = chat_id.endswith(ALLOWED_CHAT_ID)
+        is_correct_topic = thread_id == ALLOWED_TOPIC_ID
+        
+        if is_correct_group and is_correct_topic:
+            bot_info = await context.bot.get_me()
+            bot_username = bot_info.username
+            
+            group_text = (
+                "⚡ <b>SPORT PULSE ALERTS</b>\n"
+                "<i>Live Fixtures & TV Guide</i>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "To keep the group chat clean, match browsing is handled in a private session.\n\n"
+                "👉 Tap below to launch your personal Match Center:"
+            )
+            
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 Open Match Center", url=f"https://t.me/{bot_username}?start=open")]
+            ])
+            
+            await update.message.reply_text(group_text, reply_markup=kb, parse_mode="HTML")
+            
+        # Silently ignore the command if it's the wrong group or topic
+        return
+
+    # 2. PRIVATE CHAT (1-on-1)
+    if chat.type == "private":
+        text, kb = build_home_page()
+        await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -438,7 +468,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
 
-        # Shows the list of matches as buttons
         if data.startswith("date:"):
             parts = data.split(":")
             date_str = parts[1]
@@ -449,7 +478,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
             return
             
-        # Opens the Match Center for a specific game
         if data.startswith("match:"):
             parts = data.split(":")
             event_id = parts[1]
@@ -483,7 +511,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
     
-    logger.info("Bot starting with Premium Match Center UI...")
+    logger.info("Bot starting with Group Security Locks engaged...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
